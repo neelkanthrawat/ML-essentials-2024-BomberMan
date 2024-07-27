@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+### some debugging related jupyter notebooks and python files which we dont want to track
+code_debug_test.ipynb
+
 # C extensions
 *.so
 
