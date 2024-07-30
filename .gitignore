@@ -6,6 +6,9 @@ __pycache__/
 
 ### some debugging related jupyter notebooks and python files which we dont want to track
 code_debug_test.ipynb
+callback_neel_test.py
+train_neel_test.py
+checking_code_callback_and_train.ipynb
 
 # C extensions
 *.so
