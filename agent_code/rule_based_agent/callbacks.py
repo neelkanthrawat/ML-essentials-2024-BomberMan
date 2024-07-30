@@ -107,6 +107,17 @@ def act(self, game_state):
         for (i, j) in [(xb + h, yb) for h in range(-3, 4)] + [(xb, yb + h) for h in range(-3, 4)]:
             if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
                 bomb_map[i, j] = min(bomb_map[i, j], t)
+    ### added by neel: printing the game states as mentioned here
+    # print(f"\n-----self state is \n Score: {score}")
+    # print(f"\n bombs_left: {bombs_left}")
+    # print(f"\n Bombs are at: {bombs}")
+    # print(f"\n Current position is: {(x,y)}")
+    # print(f"\n bombs_xy is: {bomb_xys}")
+    # print(f"\n others is: {others}")
+    # print(f"\n Coins are at: {coins}")
+    # print(f"\n bomb map is: {bomb_map}")
+    #### Let's create the training dataset for a small example problem to see if it works well
+
 
     # If agent has been in the same location three times recently, it's a loop
     if self.coordinate_history.count((x, y)) > 2:
@@ -208,3 +219,68 @@ def act(self, game_state):
                 self.bomb_history.append((x, y))
 
             return a
+
+
+### added by Neel
+def state_to_features(game_state: dict) -> np.array:
+    """
+    Converts the game state to a multi-channel feature tensor.
+    
+    :param game_state: A dictionary describing the current game board.
+    :return: np.array representing the feature tensor.
+    """
+    if game_state is None:
+        return None
+
+    field = game_state['field']
+    explosion_map = game_state['explosion_map']
+    coins = game_state['coins']
+    bombs = game_state['bombs']
+    self_info = game_state['self']
+    others = game_state['others']
+
+    channels = []
+
+    # Field layer
+    field_layer = np.zeros_like(field, dtype=np.float32)
+    field_layer[field == -1] = -1  # Stone walls
+    field_layer[field == 1] = 1    # Crates
+    channels.append(field_layer)
+
+    # Explosion map layer
+    explosion_layer = np.zeros_like(field, dtype=np.float32)
+    explosion_layer = explosion_map
+    channels.append(explosion_layer)
+
+    # Coins layer
+    coins_layer = np.zeros_like(field, dtype=np.float32)
+    for coin in coins:
+        coins_layer[coin] = 1
+    channels.append(coins_layer)
+
+    # Bombs layer
+    bombs_layer = np.zeros_like(field, dtype=np.float32)
+    for (x, y), timer in bombs:
+        bombs_layer[x, y] = timer
+    channels.append(bombs_layer)
+
+    # Self layer
+    self_layer = np.zeros_like(field, dtype=np.float32)
+    self_x, self_y = self_info[3]
+    self_layer[self_x, self_y] = 1
+    channels.append(self_layer)
+
+    # Others layer
+    others_layer = np.zeros_like(field, dtype=np.float32)
+    for _, _, _, (x, y) in others:
+        others_layer[x, y] = 1
+    channels.append(others_layer)
+
+    # Stack all channels to form a multi-channel 2D array
+    stacked_channels = np.stack(channels)
+
+    print("Stacked channel is:")
+    print(stacked_channels)
+
+    # Optionally flatten the tensor to a vector
+    return stacked_channels.reshape(-1)
