@@ -11,10 +11,10 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions
+TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions # do we need it? do we need only last few number of transitions?
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
-# Events
+# Events 
 PLACEHOLDER_EVENT = "PLACEHOLDER"
 
 
@@ -28,10 +28,12 @@ def setup_training(self):
     """
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
+    print("Then this would be called: train.py - ssetup_training")
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
 
 
-def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_state: dict, events: List[str]):
+def game_events_occurred(self, old_game_state: dict, self_action: str, 
+                        new_game_state: dict, events: List[str]):
     """
     Called once per step to allow intermediate rewards based on game events.
 
@@ -76,7 +78,8 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
-        pickle.dump(self.model, file)
+        # pickle.dump(self.model, file)
+        print(f"\nmodel will be saved here after this round")
 
 
 def reward_from_events(self, events: List[str]) -> int:
