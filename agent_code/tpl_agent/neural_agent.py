@@ -106,13 +106,6 @@ def train_dqn(self):
 
             # Separate the minibatch into states, actions, rewards, and next states
             state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
-            # print("state batch is:"); print(state_batch)
-            
-            # print("action batch is:"); print(action_batch)
-            # print("reward_batch is:"); print(reward_batch)
-        
-            # print("next_state is:"); print(next_state_batch)
-            # print(f"shape of next_state is {next_state_batch}")
 
             ### converting to tensors
             state_batch = torch.stack(state_batch).to(device)
@@ -144,16 +137,6 @@ def train_dqn(self):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
-            #total_train_loss += loss.item()### i dont think we need this tbh
-
-    #     avg_train_loss = total_train_loss / steps_per_epoch
-    #     avg_train_loss_epoch.append(avg_train_loss)
-
-    #     if (epoch + 1) % 1 == 0:  # Adjust printing frequency if needed
-    #         print(f"Epoch {epoch + 1} - Avg Train Loss: {avg_train_loss:.6f}")
-
-    # return avg_train_loss_epoch # WE DONT NEED THESE
 
 def update_target_network(self):
     '''
