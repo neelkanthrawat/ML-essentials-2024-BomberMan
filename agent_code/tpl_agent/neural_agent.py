@@ -81,7 +81,6 @@ def train_dqn(self):
     1. Add code for Q update with alpha as lr (not done yet)
     2. Add code for target network (theta minus) and online network (theta).
     """
-
     # Initialize loss function and optimizer
     learning_rate, alpha, gamma = self.learning_rate, self.alpha, self.gamma
     replay_buffer = self.experience_buffer # I can also replace this with deque
@@ -93,7 +92,7 @@ def train_dqn(self):
     
     epochs, steps_per_epoch = 1,1
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(self.online_network.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(online_network.parameters(), lr=learning_rate)
 
     # Training loop
     avg_train_loss_epoch = [] # i dont think we need this tbh
@@ -106,7 +105,14 @@ def train_dqn(self):
             minibatch = random.sample(replay_buffer, batch_size)
 
             # Separate the minibatch into states, actions, rewards, and next states
-            state_batch, action_batch, reward_batch, next_state_batch = zip(*minibatch)
+            state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
+            # print("state batch is:"); print(state_batch)
+            
+            # print("action batch is:"); print(action_batch)
+            # print("reward_batch is:"); print(reward_batch)
+        
+            # print("next_state is:"); print(next_state_batch)
+            # print(f"shape of next_state is {next_state_batch}")
 
             ### converting to tensors
             state_batch = torch.stack(state_batch).to(device)
