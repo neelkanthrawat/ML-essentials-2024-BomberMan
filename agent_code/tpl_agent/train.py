@@ -18,7 +18,7 @@ Transition = namedtuple('Transition',
 experience_buffer = []
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
-ACTIONS_MOTION = [0,1,2,3]
+ACTIONS_DICT = {'UP':0,'RIGHT':1,'DOWN':2,'LEFT':3,'WAIT':4,'BOMB':5}
 
 # Hyper parameters -- DO modify
 TRANSITION_HISTORY_SIZE = 200  # keep only ... last transitions 
@@ -44,10 +44,13 @@ def setup_training(self):
     print("Then this would be called: train.py - setup_training")
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)# only stores recent transitions
     self.experience_buffer = [] #store all the transitions so far
-    
+    self.device="cpu" #torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
+
     if not TRAIN_FROM_THE_SCRATCH:# note: self.model is Q_(theta minus) in Mnih et. al (2015) (target network)
+        self.model =  self.model.to(self.device)
         self.model.load_state_dict(torch.load("my-saved-model.pt"))
     self.online_model = copy.deepcopy(self.model) # denoted as Q_(theta) in Mnih et al. 2015 DQN (online network)
+    
     ## NOTE: target network will be updated with online network at the end of the round
     # and online network will be updated every game step in the game_events_occured
 
@@ -55,7 +58,6 @@ def setup_training(self):
     self.learning_rate =0.001
     self.alpha, self.gamma= 0.9,0.99 #placeholder values, later we would have to optimize over these values
     self.batch_size= 32 #We have also defined the batch size here. Cool!
-    self.device= torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
 
 
 
@@ -85,7 +87,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     #calculate reward from events
     reward = reward_from_events(self,events)
     # states_to_features is defined in states_to_features.py
-    transition_info = Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward)
+    transition_info = Transition(state_to_features(old_game_state), ACTIONS_DICT[self_action], 
+                                state_to_features(new_game_state), reward)
     self.transitions.append(transition_info)# Add datum to deque
     self.experience_buffer.append(transition_info)# add datum to list
 
@@ -111,7 +114,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     reward = reward_from_events(self, events)
-    transition_info = Transition(state_to_features(last_game_state), last_action, None, reward)
+    transition_info = Transition(state_to_features(last_game_state), ACTIONS_DICT[last_action], None, reward)
     # storing the data in deque and list
     self.experience_buffer.append(transition_info)# Add the final transition list
     self.transitions.append(transition_info)# Add the final transition to the deque
@@ -123,7 +126,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
-        # pickle.dump(self.model, file)
+        # pickle.dump(self.model, file) ### i need to save the model for future
         print(f"\nmodel will be saved here after this round")
 
 
