@@ -16,7 +16,7 @@ class DQNMLP(nn.Module):
     def __init__(self, input_size, num_actions, hidden_layers_sizes):
         """
         Initialize the MLP for Deep Q-Learning.
-
+        1
         :param input_size: The size of the input (flattened state size).
         :param num_actions: The number of possible actions.
         :param hidden_layers_sizes: A list containing the number of units in each hidden layer.
