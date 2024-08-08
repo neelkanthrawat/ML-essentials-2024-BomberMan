@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+import random
+import copy
 
 # TODO: 
 # 1. DQNMLP: change the shape of the output layer from num_actions to 1.
@@ -67,46 +69,97 @@ class DQNCNN(nn.Module):
         x = self.fc2(x)
         return x
 
+
+
+### SIMPLE TRAINER FUNCTION
+def train_dqn(self):
+    """
+    Deep Q learning with experience replay. Mnih et. al (2015)
+    :param self: This object is passed to all callbacks and you can set arbitrary values.
+    
+    TODO: 
+    1. Add code for Q update with alpha as lr (not done yet)
+    2. Add code for target network (theta minus) and online network (theta).
+    """
+
+    # Initialize loss function and optimizer
+    learning_rate, alpha, gamma = self.learning_rate, self.alpha, self.gamma
+    replay_buffer = self.experience_buffer # I can also replace this with deque
+    device=self.device
+    ### defining 2 models which we need for training
+    target_network = self.model#defining target network, Q(theta -). Needed for calculating Q target. will be updated at the end of the round with online network
+    online_network = self.online_model#defining target network, Q(theta). Will be updated after each game step
+    batch_size = min(len(replay_buffer), self.batch_size) # because for a new game, in the beginning, len(replay_buffer) < self.batch_size
+    
+    epochs, steps_per_epoch = 1,1
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(self.online_network.parameters(), lr=learning_rate)
+
+    # Training loop
+    avg_train_loss_epoch = [] # i dont think we need this tbh
+    for epoch in range(epochs):
+        online_network.train()
+        total_train_loss = 0
+
+        for step in range(steps_per_epoch):### tbh, I think we need only 1 step per epoch
+            # Sample a mini-batch from the replay buffer
+            minibatch = random.sample(replay_buffer, batch_size)
+
+            # Separate the minibatch into states, actions, rewards, and next states
+            state_batch, action_batch, reward_batch, next_state_batch = zip(*minibatch)
+
+            ### converting to tensors
+            state_batch = torch.stack(state_batch).to(device)
+            action_batch = torch.tensor(action_batch, dtype=torch.long).to(device)
+            reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(device)
+            # handling next_state_batch for cases where entries could be None
+            # Create a mask for non-final (non-None) states
+            non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)
+            # Filter out non-terminal next states and convert to tensor
+            non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)
+
+            # Compute Q values for the current states
+            q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+
+            # Compute target Q values
+            # initialise target_q_values with the reward_batch
+            target_q_values = reward_batch.clone()
+            with torch.no_grad():
+                next_q_values = torch.zeros(batch_size, device=device)  # Initialize with zeros 
+                if len(non_final_next_states) > 0:  # Compute next_q_values only if there are non-final states
+                    # returing the maximum Q values for non None next states
+                    next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]# note that we are performing Q learning in narrow sense.
+                # Add gamma * next_q_values for non-final states
+                target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+            # Compute loss
+            loss = criterion(q_values, target_q_values)
+
+            # Backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            #total_train_loss += loss.item()### i dont think we need this tbh
+
+    #     avg_train_loss = total_train_loss / steps_per_epoch
+    #     avg_train_loss_epoch.append(avg_train_loss)
+
+    #     if (epoch + 1) % 1 == 0:  # Adjust printing frequency if needed
+    #         print(f"Epoch {epoch + 1} - Avg Train Loss: {avg_train_loss:.6f}")
+
+    # return avg_train_loss_epoch # WE DONT NEED THESE
+
+def update_target_network(self):
+    '''
+
+    :param self: This object is passed to all callbacks and you can set arbitrary values.
+    '''
+    self.model = copy.deepcopy(self.online_model)
+
+
+
+##UPDATE: WE MIGHT NOT NEED A TRAINER CLASS. WE CAN WORK WITH A SIMPLE TRAINER FUNCTION I BELIEVE
 #### defining the trainer class:
-class ReplayBufferDataset(Dataset):
-    """
-    A custom PyTorch Dataset for the replay buffer.
-    
-    This dataset allows for easy access to experience tuples stored in the replay buffer.
-    Each experience tuple contains:
-        - state
-        - action
-        - reward
-        - next_state
-    
-    Attributes:
-        replay_buffer (list): The replay buffer containing experience tuples.
-    """
-    def __init__(self, replay_buffer):
-        """
-        Initializes the dataset with the replay buffer.
-        
-        :param replay_buffer: List of experience tuples (state, action, reward, next_state).
-        """
-        self.replay_buffer = replay_buffer
-
-    def __len__(self):
-        """
-        Returns the number of experiences in the replay buffer.
-        
-        :return: The number of experience tuples in the replay buffer.
-        """
-        return len(self.replay_buffer)
-
-    def __getitem__(self, idx):
-        """
-        Retrieves an experience tuple at a given index.
-        
-        :param idx: The index of the experience tuple to retrieve.
-        :return: The experience tuple at the given index.
-        """
-        return self.replay_buffer[idx]
-
 class DQNTrainer:
     """
     A trainer class for Deep Q-Learning with PyTorch.
@@ -118,7 +171,7 @@ class DQNTrainer:
 
     Attributes:
         model (nn.Module): The neural network model for DQN.
-        replay_buffer (ReplayBufferDataset): The dataset containing experience tuples.
+        replay_buffer (list): The dataset containing experience tuples.
         learning_rate (float): The learning rate for the optimizer.
         gamma (float): The discount factor for future rewards.
         batch_size (int): The size of each mini-batch.
@@ -181,16 +234,18 @@ class DQNTrainer:
         """
         self.model.train()
         total_train_loss = 0
-        dataset = ReplayBufferDataset(self.replay_buffer)
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True, num_workers=2)
 
-        tbar = tqdm(dataloader, desc=f"Epoch {epoch + 1}")
+        for step in range(self.steps_per_epoch):
+            # Sample a mini-batch from the replay buffer
+            minibatch = random.sample(self.replay_buffer, self.batch_size)
+            
+            # Separate the minibatch into states, actions, rewards, and next states
+            state_batch, action_batch, reward_batch, next_state_batch = zip(*minibatch)
 
-        for batch_idx, (state_batch, action_batch, reward_batch, next_state_batch) in enumerate(tbar):
-            state_batch = state_batch.to(self.device)
-            action_batch = action_batch.to(self.device)
-            reward_batch = reward_batch.to(self.device)
-            next_state_batch = next_state_batch.to(self.device)
+            state_batch = torch.stack(state_batch).to(self.device)
+            action_batch = torch.tensor(action_batch, dtype=torch.long).to(self.device)
+            reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(self.device)
+            next_state_batch = torch.stack(next_state_batch).to(self.device)
 
             # Compute Q values for the current states
             q_values = self.model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
@@ -209,7 +264,6 @@ class DQNTrainer:
             self.optimizer.step()
 
             total_train_loss += loss.item()
-            tbar.set_postfix(loss=loss.item())
 
-        avg_train_loss = total_train_loss / len(dataloader)
+        avg_train_loss = total_train_loss / self.steps_per_epoch
         self.avg_train_loss_epoch.append(avg_train_loss)
