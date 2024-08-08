@@ -3,9 +3,16 @@ import pickle
 import random
 
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from .states_to_features import state_to_features
+from .neural_agent import DQNCNN, DQNMLP
 
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
+
 
 
 def setup(self):
@@ -22,14 +29,19 @@ def setup(self):
 
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
+    print("First checking Callbacks: setup")
+    input_size = 8 * 8 * 6  # Adjust this based on input size (example: 8x8 field with 6 channels)
+    num_actions = len(ACTIONS)
+    hidden_layers_sizes = [128, 128, 64]  # Example hidden layer sizes
+
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
-        weights = np.random.rand(len(ACTIONS))
-        self.model = weights / weights.sum()
+        self.model = DQNMLP(input_size, num_actions, hidden_layers_sizes)
     else:
         self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
-            self.model = pickle.load(file)
+        self.model = DQNMLP(input_size, num_actions, hidden_layers_sizes)
+        self.model.load_state_dict(torch.load("my-saved-model.pt"))
+    
 
 
 def act(self, game_state: dict) -> str:
@@ -40,40 +52,37 @@ def act(self, game_state: dict) -> str:
     :param self: The same object that is passed to all of your callbacks.
     :param game_state: The dictionary that describes everything on the board.
     :return: The action to take as a string.
+
+    TODO: 
+    1. (DONE) check the logic of exploration exploitation. 
+    2. Implement linear annealing schedule to the the epsilon. For this I would have to save a number somewhere i feel like. 
     """
     # todo Exploration vs exploitation
-    random_prob = .1
-    if self.train and random.random() < random_prob:
-        self.logger.debug("Choosing action purely at random.")
-        # 80%: walk in any direction. 10% wait. 10% bomb.
-        return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .1, .1])
+    #random_prob = .1
+    epsilon = 0.99  # Exploration rate
 
-    self.logger.debug("Querying model for action.")
-    return np.random.choice(ACTIONS, p=self.model)
-
-
-def state_to_features(game_state: dict) -> np.array:
-    """
-    *This is not a required function, but an idea to structure your code.*
-
-    Converts the game state to the input of your model, i.e.
-    a feature vector.
-
-    You can find out about the state of the game environment via game_state,
-    which is a dictionary. Consult 'get_state_for_agent' in environment.py to see
-    what it contains.
-
-    :param game_state:  A dictionary describing the current game board.
-    :return: np.array
-    """
-    # This is the dict before the game begins and after it ends
-    if game_state is None:
-        return None
-
-    # For example, you could construct several channels of equal shape, ...
-    channels = []
-    channels.append(...)
-    # concatenate them as a feature tensor (they must have the same shape), ...
-    stacked_channels = np.stack(channels)
-    # and return them as a vector
-    return stacked_channels.reshape(-1)
+    if self.train:
+        if random.random() < epsilon:
+            self.logger.debug("Choosing action purely at random for exploration.")
+            return np.random.choice(ACTIONS)
+        else:
+            self.logger.debug("Choosing action based on model prediction for exploitation.")
+            #return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .2, 0.0])### PLACEHOLDER
+            # TODO: I NEED TO CHECK HOW TO INCORPORATE ACTION IN THE NN MODEL FOR DQN. THEN I WILL FILL THIS PART OF THE CODE
+            state = state_to_features(game_state)
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+            with torch.no_grad():
+                q_values = self.model(state)
+            action_index = torch.argmax(q_values).item()
+            return ACTIONS[action_index]
+    else:
+        # Placeholder for non-training mode
+        ### TODO: ADD CODE TO RETURN ACTION USING THE TRAINED Q-NN MODEL
+        self.logger.debug("Choosing action using trained model (non-training mode).")
+        # return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .2, 0.0])
+        state = state_to_features(game_state)
+        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        with torch.no_grad():
+            q_values = self.model(state)
+        action_index = torch.argmax(q_values).item()
+        return ACTIONS[action_index]
