@@ -2,20 +2,33 @@ from collections import namedtuple, deque
 
 import pickle
 from typing import List
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 import events as e
-from .callbacks import state_to_features
+# from .callbacks import state_to_features
+from .states_to_features import state_to_features
+import copy
+from .neural_agent import train_dqn, update_target_network
 
 # This is only an example!
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
+experience_buffer = []
+
+ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
+ACTIONS_MOTION = [0,1,2,3]
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 3  # keep only ... last transitions # do we need it? do we need only last few number of transitions?
+TRANSITION_HISTORY_SIZE = 200  # keep only ... last transitions 
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Events 
-PLACEHOLDER_EVENT = "PLACEHOLDER"
+VALID_ACTION = "VALID_ACTION"
+
+# For training
+TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
 
 
 def setup_training(self):
@@ -28,8 +41,22 @@ def setup_training(self):
     """
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
-    print("Then this would be called: train.py - ssetup_training")
-    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)
+    print("Then this would be called: train.py - setup_training")
+    self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)# only stores recent transitions
+    self.experience_buffer = [] #store all the transitions so far
+    
+    if not TRAIN_FROM_THE_SCRATCH:# note: self.model is Q_(theta minus) in Mnih et. al (2015) (target network)
+        self.model.load_state_dict(torch.load("my-saved-model.pt"))
+    self.online_model = copy.deepcopy(self.model) # denoted as Q_(theta) in Mnih et al. 2015 DQN (online network)
+    ## NOTE: target network will be updated with online network at the end of the round
+    # and online network will be updated every game step in the game_events_occured
+
+    ### defining the network training parameters:
+    self.learning_rate =0.001
+    self.alpha, self.gamma= 0.9,0.99 #placeholder values, later we would have to optimize over these values
+    self.batch_size= 32 #We have also defined the batch size here. Cool!
+    self.device= torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
+
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, 
@@ -51,13 +78,22 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
-
     # Idea: Add your own events to hand out rewards
-    if ...:
-        events.append(PLACEHOLDER_EVENT)
+    if not e.INVALID_ACTION : # CURRENT STATE != PREVIOUS STATE
+        events.append(VALID_ACTION)
 
-    # state_to_features is defined in callbacks.py
-    self.transitions.append(Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward_from_events(self, events)))
+    #calculate reward from events
+    reward = reward_from_events(self,events)
+    # states_to_features is defined in states_to_features.py
+    transition_info = Transition(state_to_features(old_game_state), self_action, state_to_features(new_game_state), reward)
+    self.transitions.append(transition_info)# Add datum to deque
+    self.experience_buffer.append(transition_info)# add datum to list
+
+    ### train the online model
+    train_dqn(self)
+    ## we can also update the target network here after every C steps. Need to discuss this!
+
+    
 
 
 def end_of_round(self, last_game_state: dict, last_action: str, events: List[str]):
@@ -74,8 +110,17 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
-    self.transitions.append(Transition(state_to_features(last_game_state), last_action, None, reward_from_events(self, events)))
-
+    reward = reward_from_events(self, events)
+    transition_info = Transition(state_to_features(last_game_state), last_action, None, reward)
+    # storing the data in deque and list
+    self.experience_buffer.append(transition_info)# Add the final transition list
+    self.transitions.append(transition_info)# Add the final transition to the deque
+    
+    ## train the online model 
+    train_dqn(self)
+    ## update the target network
+    update_target_network(self)
+    
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
         # pickle.dump(self.model, file)
@@ -88,11 +133,28 @@ def reward_from_events(self, events: List[str]) -> int:
 
     Here you can modify the rewards your agent get so as to en/discourage
     certain behavior.
+
+    TODO: 
+    1) (DONE) ADD THE FOLLOWING:
+    Collect Coin 5
+    make a Valid move -1 # all the actions
+    make an invalid move: (NEED TO IMPLEMENT IT LOGICALLY -100)
+    Kill a player 1000, 700, 500
+    Die 1. killed by its own bomb: -1000 and 2. killed by other players: -2000
+    Break a crate 2 ### THIS IS IMPORTANT TO FIGURE OUT FOR THE FINAL GAME
+    
+    2) CHECK: what happens if we remove VALID_ACTION AND INVALID_ACTION:
+        REASON: the model should automatically be able to learn taking valid action from other rewards
+        such as : collecting coins, breaking crates, killing the opponent.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 1,
-        e.KILLED_OPPONENT: 5,
-        PLACEHOLDER_EVENT: -.1  # idea: the custom event is bad
+        e.COIN_COLLECTED: 100,
+        e.KILLED_OPPONENT: 400,
+        VALID_ACTION: -1,  # idea: the custom event is bad
+        e.INVALID_ACTION: -10,
+        e.KILLED_SELF: -300,
+        e.GOT_KILLED: -400,
+        e.CRATE_DESTROYED: 30
     }
     reward_sum = 0
     for event in events:
@@ -100,3 +162,11 @@ def reward_from_events(self, events: List[str]) -> int:
             reward_sum += game_rewards[event]
     self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
     return reward_sum
+
+### possible rewards: A* search!
+# Collect Coin
+# make a Valid move
+# make an invalid move: HOW TO IMPLEMENT IT LOGICALLY
+# Kill a player
+# Die 1. killed by its own bomb and 2. killed by other players
+# Break a crate
