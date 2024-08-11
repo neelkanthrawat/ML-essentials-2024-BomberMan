@@ -21,10 +21,10 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 ACTIONS_DICT = {'UP':0,'RIGHT':1,'DOWN':2,'LEFT':3,'WAIT':4,'BOMB':5}
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 200  # keep only ... last transitions 
+TRANSITION_HISTORY_SIZE = 100  # keep only ... last transitions 
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
-# Events 
+# Events s
 VALID_ACTION = "VALID_ACTION"
 
 # For training
@@ -43,8 +43,8 @@ def setup_training(self):
     # (s, a, r, s')
     print("Then this would be called: train.py - setup_training")
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)# only stores recent transitions
-    self.experience_buffer = [] #store all the transitions so far
-    self.device="cpu" #torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
+    self.experience_buffer = deque(maxlen=TRANSITION_HISTORY_SIZE) #[] #store all the transitions so far
+    self.device='cpu'#torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
 
     if not TRAIN_FROM_THE_SCRATCH:# note: self.model is Q_(theta minus) in Mnih et. al (2015) (target network)
         self.model =  self.model.to(self.device)
@@ -55,10 +55,15 @@ def setup_training(self):
     # and online network will be updated every game step in the game_events_occured
 
     ### defining the network training parameters:
-    self.learning_rate =0.001
-    self.alpha, self.gamma= 0.9,0.99 #placeholder values, later we would have to optimize over these values
-    self.batch_size= 32 #We have also defined the batch size here. Cool!
+    self.learning_rate =0.0005
+    self.alpha, self.gamma= 0.9,0.95 #placeholder values, later we would have to optimize over these values
+    self.batch_size= 64 #We have also defined the batch size here. Cool!
 
+    ### Initialize epsilon for the epsilon-greedy strategy
+    self.epsilon_start = 0.99999  # Initial epsilon
+    self.epsilon_end = 0.8   # Final epsilon
+    self.epsilon_decay = 0.99999995  # Decay factor per step
+    self.epsilon = self.epsilon_start  # Start epsilon with the initial value
 
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, 
@@ -80,9 +85,9 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     :param events: The events that occurred when going from  `old_game_state` to `new_game_state`
     """
     self.logger.debug(f'Encountered game event(s) {", ".join(map(repr, events))} in step {new_game_state["step"]}')
-    # Idea: Add your own events to hand out rewards
-    if not e.INVALID_ACTION : # CURRENT STATE != PREVIOUS STATE
-        events.append(VALID_ACTION)
+    # Idea: Add your own events to hand out rewards. this is not correct
+    if ... :
+        pass
 
     #calculate reward from events
     reward = reward_from_events(self,events)
@@ -122,12 +127,13 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     ## train the online model 
     train_dqn(self)
     ## update the target network
+    # s
     update_target_network(self)
     
     # Store the model
     with open("my-saved-model.pt", "wb") as file:
-        # pickle.dump(self.model, file) ### i need to save the model for future
-        print(f"\nmodel will be saved here after this round")
+        torch.save(self.model.state_dict(), "my-saved-model.pt") ### i need to save the model for future
+        #print(f"\nmodel will be saved here after this round")
 
 
 def reward_from_events(self, events: List[str]) -> int:
@@ -153,10 +159,15 @@ def reward_from_events(self, events: List[str]) -> int:
     game_rewards = {
         e.COIN_COLLECTED: 100,
         e.KILLED_OPPONENT: 400,
-        VALID_ACTION: -1,  # idea: the custom event is bad
+        e.MOVED_RIGHT: -1,
+        e.MOVED_LEFT: -1,
+        e.MOVED_UP: -1,
+        e.MOVED_DOWN: -1,
+        e.WAITED: -5, 
+        e.BOMB_DROPPED: -5,
         e.INVALID_ACTION: -10,
-        e.KILLED_SELF: -300,
-        e.GOT_KILLED: -400,
+        e.KILLED_SELF: -200,
+        e.GOT_KILLED: -1000,
         e.CRATE_DESTROYED: 30
     }
     reward_sum = 0
