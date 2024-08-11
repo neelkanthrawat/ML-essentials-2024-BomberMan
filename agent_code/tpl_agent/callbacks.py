@@ -30,9 +30,9 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     print("First checking Callbacks: setup")
-    input_size = 8 * 8 * 6  # Adjust this based on input size (example: 8x8 field with 6 channels)
+    input_size = 7 * 7 * 6  # Adjust this based on input size (example: 8x8 field with 6 channels)
     num_actions = len(ACTIONS)
-    hidden_layers_sizes = [128, 128, 64]  # Example hidden layer sizes
+    hidden_layers_sizes = [64,64,64,32]  # Example hidden layer sizes hidden layer (older):[64,16]
 
     if self.train or not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
@@ -41,6 +41,7 @@ def setup(self):
         self.logger.info("Loading model from saved state.")
         self.model = DQNMLP(input_size, num_actions, hidden_layers_sizes)
         self.model.load_state_dict(torch.load("my-saved-model.pt"))
+        self.model.eval()
     
 
 
@@ -59,30 +60,37 @@ def act(self, game_state: dict) -> str:
     """
     # todo Exploration vs exploitation
     #random_prob = .1
-    epsilon = 0.99  # Exploration rate
-
+    # If training, use the diminishing epsilon-greedy strategy
     if self.train:
-        if random.random() < epsilon:
+        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+        
+        if random.random() < self.epsilon:
             self.logger.debug("Choosing action purely at random for exploration.")
-            return np.random.choice(ACTIONS)
+            actions_for_coin_collection=['UP', 'RIGHT', 'DOWN', 'LEFT']
+            action=np.random.choice(actions_for_coin_collection)
+            # print(f"\nACTION: {action}")
+            return action
         else:
             self.logger.debug("Choosing action based on model prediction for exploitation.")
             #return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .2, 0.0])### PLACEHOLDER
             # TODO: I NEED TO CHECK HOW TO INCORPORATE ACTION IN THE NN MODEL FOR DQN. THEN I WILL FILL THIS PART OF THE CODE
             state = state_to_features(game_state)
-            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+            state = state.clone().detach().unsqueeze(0).float()#torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
             with torch.no_grad():
                 q_values = self.model(state)
             action_index = torch.argmax(q_values).item()
+            # print(f"\nAction is {ACTIONS[action_index]}")
             return ACTIONS[action_index]
     else:
         # Placeholder for non-training mode
         ### TODO: ADD CODE TO RETURN ACTION USING THE TRAINED Q-NN MODEL
+        self.model.eval()
         self.logger.debug("Choosing action using trained model (non-training mode).")
         # return np.random.choice(ACTIONS, p=[.2, .2, .2, .2, .2, 0.0])
         state = state_to_features(game_state)
-        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
+        state = state.clone().detach().unsqueeze(0).float()#torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
         with torch.no_grad():
             q_values = self.model(state)
         action_index = torch.argmax(q_values).item()
+        # print(f"\nAction is {ACTIONS[action_index]}")
         return ACTIONS[action_index]
