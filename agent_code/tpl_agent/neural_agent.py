@@ -88,6 +88,7 @@ def train_dqn(self):
     ### defining 2 models which we need for training
     target_network = self.model#defining target network, Q(theta -). Needed for calculating Q target. will be updated at the end of the round with online network
     online_network = self.online_model#defining target network, Q(theta). Will be updated after each game step
+    target_network, online_network = target_network.to(device), online_network.to(device)
     batch_size = min(len(replay_buffer), self.batch_size) # because for a new game, in the beginning, len(replay_buffer) < self.batch_size
     
     epochs, steps_per_epoch = 1,1
