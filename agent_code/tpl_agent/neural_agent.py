@@ -97,47 +97,48 @@ def train_dqn(self):
 
     # Training loop
     avg_train_loss_epoch = [] # i dont think we need this tbh
-    for epoch in range(epochs):
-        online_network.train()
-        total_train_loss = 0
+    online_network.train()
+    total_train_loss = 0
 
-        for step in range(steps_per_epoch):### tbh, I think we need only 1 step per epoch
-            # Sample a mini-batch from the replay buffer
-            minibatch = random.sample(replay_buffer, batch_size)
+    # for step in range(steps_per_epoch):### tbh, I think we need only 1 step per epoch
+    # Sample a mini-batch from the replay buffer
+    minibatch = random.sample(replay_buffer, batch_size)
 
-            # Separate the minibatch into states, actions, rewards, and next states
-            state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
+    # Separate the minibatch into states, actions, rewards, and next states
+    state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
 
-            ### converting to tensors
-            state_batch = torch.stack(state_batch).to(device)
-            action_batch = torch.tensor(action_batch, dtype=torch.long).to(device)
-            reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(device)
-            # handling next_state_batch for cases where entries could be None
-            # Create a mask for non-final (non-None) states
-            non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)
-            # Filter out non-terminal next states and convert to tensor
-            non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)
+    ### converting to tensors
+    state_batch = torch.stack(state_batch).to(device)
+    action_batch = torch.tensor(action_batch, dtype=torch.long).to(device)
+    reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(device)
+    # handling next_state_batch for cases where entries could be None
+    non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)# Create a mask for non-final (non-None) states
+    non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)# Filter out non-terminal next states and convert to tensor
+    # print("_"*10)
+    # print(f"state_batch.shape: {state_batch.shape}")
+    # print(f"action_batch.shape: {action_batch.shape}")
+    # print(f"reward_batch.shape: {reward_batch.shape}")
+    # print(f"non_final_next_states.shape: {non_final_next_states.shape}")
+    q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)# Compute Q values for the current states
+    # print(f"q values shape: {q_values.shape}")
+    # COMPUTE TARGET Q VALUES
+    # initialise target_q_values with the reward_batch
+    target_q_values = reward_batch.clone()
+    with torch.no_grad():
+        next_q_values = torch.zeros(batch_size, device=device)  # Initialize with zeros 
+        if len(non_final_next_states) > 0:  # Compute next_q_values only if there are non-final states
+            # returing the maximum Q values for non None next states
+            next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]# note that we are performing Q learning in narrow sense.
+            # print(f"next q values shape: {next_q_values.shape}")
+        # Add gamma * next_q_values for non-final states
+        target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+    # Compute loss
+    loss = criterion(q_values, target_q_values)
 
-            # Compute Q values for the current states
-            q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
-
-            # Compute target Q values
-            # initialise target_q_values with the reward_batch
-            target_q_values = reward_batch.clone()
-            with torch.no_grad():
-                next_q_values = torch.zeros(batch_size, device=device)  # Initialize with zeros 
-                if len(non_final_next_states) > 0:  # Compute next_q_values only if there are non-final states
-                    # returing the maximum Q values for non None next states
-                    next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]# note that we are performing Q learning in narrow sense.
-                # Add gamma * next_q_values for non-final states
-                target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
-            # Compute loss
-            loss = criterion(q_values, target_q_values)
-
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    # Backpropagation
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 
 def update_target_network(self):
     '''
@@ -146,114 +147,3 @@ def update_target_network(self):
     '''
     self.model = copy.deepcopy(self.online_model)
 
-
-
-##UPDATE: WE MIGHT NOT NEED A TRAINER CLASS. WE CAN WORK WITH A SIMPLE TRAINER FUNCTION I BELIEVE
-#### defining the trainer class:
-class DQNTrainer:
-    """
-    A trainer class for Deep Q-Learning with PyTorch.
-    
-    This class manages the training loop for a DQN model using a replay buffer. It handles:
-        - Training over multiple epochs
-        - Computing Q-values and loss
-        - Updating the model's parameters
-
-    Attributes:
-        model (nn.Module): The neural network model for DQN.
-        replay_buffer (list): The dataset containing experience tuples.
-        learning_rate (float): The learning rate for the optimizer.
-        gamma (float): The discount factor for future rewards.
-        batch_size (int): The size of each mini-batch.
-        epochs (int): The number of epochs to train for.
-        steps_per_epoch (int): The number of steps to perform in each epoch.
-        print_after (int): How often to print training statistics.
-        optimizer (torch.optim.Optimizer): The optimizer for the model.
-        criterion (nn.Module): The loss function.
-        device (torch.device): The device to run the training on (CPU or GPU).
-        avg_train_loss_epoch (list): List to store average training loss for each epoch.
-    """
-    def __init__(self, model, replay_buffer, learning_rate, gamma, batch_size, epochs, steps_per_epoch, print_after):
-        """
-        Initializes the trainer with the model, replay buffer, and training parameters.
-        
-        :param model: The neural network model for DQN.
-        :param replay_buffer: The replay buffer dataset.
-        :param learning_rate: The learning rate for the optimizer.
-        :param gamma: The discount factor for future rewards.
-        :param batch_size: The size of each mini-batch.
-        :param epochs: The number of epochs to train for.
-        :param steps_per_epoch: The number of steps to perform in each epoch.
-        :param print_after: How often to print training statistics.
-        """
-        self.model = model
-        self.replay_buffer = replay_buffer
-        self.learning_rate = learning_rate
-        self.gamma = gamma
-        self.batch_size = batch_size
-        self.epochs = epochs
-        self.steps_per_epoch = steps_per_epoch
-        self.print_after = print_after
-
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.criterion = nn.MSELoss()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-
-        self.avg_train_loss_epoch = []
-
-    def train(self):
-        """
-        Main training loop that runs through multiple epochs.
-        """
-        for epoch in range(self.epochs):
-            self.train_epoch(epoch)
-            if (epoch + 1) % self.print_after == 0:
-                print("_" * 30)
-                print(f"Avg epoch train loss: {self.avg_train_loss_epoch[epoch]:.6f}")
-                print("_" * 30)
-
-    def train_epoch(self, epoch):
-        """
-        Trains the model for a single epoch.
-        
-        This method processes data in mini-batches, computes Q-values and target Q-values,
-        updates model parameters, and logs training progress.
-        
-        :param epoch: The current epoch number.
-        """
-        self.model.train()
-        total_train_loss = 0
-
-        for step in range(self.steps_per_epoch):
-            # Sample a mini-batch from the replay buffer
-            minibatch = random.sample(self.replay_buffer, self.batch_size)
-            
-            # Separate the minibatch into states, actions, rewards, and next states
-            state_batch, action_batch, reward_batch, next_state_batch = zip(*minibatch)
-
-            state_batch = torch.stack(state_batch).to(self.device)
-            action_batch = torch.tensor(action_batch, dtype=torch.long).to(self.device)
-            reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(self.device)
-            next_state_batch = torch.stack(next_state_batch).to(self.device)
-
-            # Compute Q values for the current states
-            q_values = self.model(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
-
-            # Compute target Q values
-            with torch.no_grad():
-                next_q_values = self.model(next_state_batch).max(1)[0]
-                target_q_values = reward_batch + self.gamma * next_q_values
-
-            # Compute loss
-            loss = self.criterion(q_values, target_q_values)
-
-            # Backpropagation
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-            total_train_loss += loss.item()
-
-        avg_train_loss = total_train_loss / self.steps_per_epoch
-        self.avg_train_loss_epoch.append(avg_train_loss)
