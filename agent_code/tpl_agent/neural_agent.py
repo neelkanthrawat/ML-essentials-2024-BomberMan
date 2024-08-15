@@ -110,13 +110,13 @@ def train_dqn(self):
         next_q_values = torch.zeros(batch_size, device=device)
         if len(non_final_next_states) > 0:
             next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]
-        print(f"next_q_values.shape: {next_q_values.shape}")
+        #print(f"next_q_values.shape: {next_q_values.shape}")
 
         target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
 
     # Compute loss
     loss = criterion(q_values, target_q_values)
-    #print(f"loss is: {loss}") ### I can try to print this loss as well
+    print(f"loss is: {loss}") ### I can try to print this loss as well
 
     # Backpropagation
     optimizer.zero_grad()
