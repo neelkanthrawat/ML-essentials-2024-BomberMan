@@ -1,6 +1,7 @@
 from collections import namedtuple, deque
 
 import pickle
+import os
 from typing import List
 import torch
 import torch.nn as nn
@@ -12,8 +13,9 @@ from .states_to_features import state_to_features, state_to_features_encoder
 import copy
 from .neural_agent import train_dqn, update_target_network
 
-
-# This is only an example!
+# For training
+TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
+AGENT_SAVED = 'my-saved-model-5x5-naive.pt'
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 experience_buffer = []
@@ -27,10 +29,6 @@ RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Events s
 VALID_ACTION = "VALID_ACTION"
-
-# For training
-TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-AGENT_SAVED = 'my-saved-model-7x7-with-ae.pt'
 
 def setup_training(self):
     """
