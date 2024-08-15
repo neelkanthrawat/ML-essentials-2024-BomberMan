@@ -79,8 +79,8 @@ def train_dqn(self):
     device = self.device
 
     # Define the target and online networks
-    target_network = self.model.to(device)### theta minus
-    online_network = self.online_model.to(device)### theta in minh et al
+    target_network = self.model.to(device)### theta minus used for calculating the target Q values
+    online_network = self.online_model.to(device)### theta in minh et al ### trained every game step
 
     batch_size = min(len(replay_buffer), self.batch_size)
     criterion = nn.MSELoss()
@@ -132,7 +132,6 @@ def train_dqn(self):
 
 def update_target_network(self):
     '''
-
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     '''
     self.model = copy.deepcopy(self.online_model)
