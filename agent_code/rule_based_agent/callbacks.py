@@ -2,10 +2,15 @@ from collections import deque
 from random import shuffle
 
 import numpy as np
+import pickle
+import torch
 
 import settings as s
+import os
 
+DATA_FILE = "data_for_ae_coin_heaven_7x7.pth"
 
+DATA_TO_SAVE=[]# simple list
 def look_for_targets(free_space, start, targets, logger=None):
     """Find direction of closest target that can be reached via free tiles.
 
@@ -73,6 +78,12 @@ def setup(self):
     # While this timer is positive, agent will not hunt/attack opponents
     self.ignore_others_timer = 0
     self.current_round = 0
+    #added by Neel
+    self.current_state_list=[]
+    self.action_list= []
+    self.current_round_number = 1
+    self.dict_each_round_info={}
+    self.step_number=0 # we dont need it
 
 
 def reset_self(self):
@@ -80,6 +91,7 @@ def reset_self(self):
     self.coordinate_history = deque([], 20)
     # While this timer is positive, agent will not hunt/attack opponents
     self.ignore_others_timer = 0
+    
 
 
 def act(self, game_state):
@@ -95,6 +107,12 @@ def act(self, game_state):
     if game_state["round"] != self.current_round:
         reset_self(self)
         self.current_round = game_state["round"]
+        # print("\n---saving data")
+        # Save unique data accumulated in the current round
+        # print(f"number of states in this round: {len(self.current_state_list)}")
+        save_data(self.current_state_list)
+        # Clear the list for the next round
+        self.current_state_list = []
     # Gather information about the game state
     arena = game_state['field']
     _, score, bombs_left, (x, y) = game_state['self']
@@ -107,17 +125,27 @@ def act(self, game_state):
         for (i, j) in [(xb + h, yb) for h in range(-3, 4)] + [(xb, yb + h) for h in range(-3, 4)]:
             if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
                 bomb_map[i, j] = min(bomb_map[i, j], t)
-    ### added by neel: printing the game states as mentioned here
-    # print(f"\n-----self state is \n Score: {score}")
-    # print(f"\n bombs_left: {bombs_left}")
-    # print(f"\n Bombs are at: {bombs}")
-    # print(f"\n Current position is: {(x,y)}")
-    # print(f"\n bombs_xy is: {bomb_xys}")
-    # print(f"\n others is: {others}")
-    # print(f"\n Coins are at: {coins}")
-    # print(f"\n bomb map is: {bomb_map}")
-    #### Let's create the training dataset for a small example problem to see if it works well
 
+    ### print bomb's position
+    # print("\nagent's current position is:"); print((x,y))
+    # print("active bombs position is:"); print(bombs)
+    # print("bomb map is:"); print(bomb_map)
+
+    
+    #### Let's create the training dataset for a small example problem to see if it works well
+    # print(f"Current round number is: {self.current_round}")
+    # current_state_feature_vector = state_to_features(game_state=game_state)
+    # self.current_state_list.append(current_state_feature_vector)
+    # if self.current_round_number != game_state['round']:
+    #     save_data_given_round(self, game_state)
+    #     self.current_round_number +=1
+    #     self.current_state_list=[]
+    #     self.action_list = []
+    
+    ### states dataset
+    current_state_feature_vector = state_to_features(game_state=game_state)
+    self.current_state_list.append(current_state_feature_vector)
+    
 
     # If agent has been in the same location three times recently, it's a loop
     if self.coordinate_history.count((x, y)) > 2:
@@ -154,7 +182,7 @@ def act(self, game_state):
     cols = range(1, arena.shape[0] - 1)
     rows = range(1, arena.shape[0] - 1)
     dead_ends = [(x, y) for x in cols for y in rows if (arena[x, y] == 0)
-                 and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
+                and ([arena[x + 1, y], arena[x - 1, y], arena[x, y + 1], arena[x, y - 1]].count(0) == 1)]
     crates = [(x, y) for x in cols for y in rows if (arena[x, y] == 1)]
     targets = coins + dead_ends + crates
     # Add other agents as targets if in hunting mode or no crates/coins left
@@ -217,17 +245,34 @@ def act(self, game_state):
             # Keep track of chosen action for cycle detection
             if a == 'BOMB':
                 self.bomb_history.append((x, y))
-
+            ### Neel: append the action taken, will be used later for creating the training set
+            # self.action_list.append(a)
             return a
 
 
 ### added by Neel
-def state_to_features(game_state: dict) -> np.array:
+#1. (DONE) Add function to get features from the dict game_state. 
+#2. (DONE) In the function above, add code to store
+#  the feature and the action taken for each discreet time step. 
+### I wanna try 1. and 2. first
+#3. (NOT-DONE) Add function to calculate reward and store them # we need this to create TS for our Q matrix
+
+def save_data_given_round(self, game_state):
+    print(f"\n For Agent: {game_state['self'][0]} and ")
+    print(f"current rounds is: {self.current_round_number} storing data whereas game_state[rounds] is {game_state['round']}")
+    dict_info={"states":self.current_state_list, "actions":self.action_list}
+    self.dict_each_round_info[self.current_round_number]=dict_info
+    ### save the info about states and action in the pickle file
+    with open(f"{game_state['self'][0]}_info_game_17x17_round.pkl", 'wb') as file:
+        pickle.dump(self.dict_each_round_info, file)
+    
+
+def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tensor:
     """
-    Converts the game state to a multi-channel feature tensor.
+    Converts the game state to a multi-channel feature tensor using PyTorch.
     
     :param game_state: A dictionary describing the current game board.
-    :return: np.array representing the feature tensor.
+    :return: torch.Tensor representing the feature tensor.
     """
     if game_state is None:
         return None
@@ -241,46 +286,80 @@ def state_to_features(game_state: dict) -> np.array:
 
     channels = []
 
-    # Field layer
-    field_layer = np.zeros_like(field, dtype=np.float32)
+    # Field layer: positions our agent can't take
+    field_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     field_layer[field == -1] = -1  # Stone walls
     field_layer[field == 1] = 1    # Crates
     channels.append(field_layer)
 
     # Explosion map layer
-    explosion_layer = np.zeros_like(field, dtype=np.float32)
-    explosion_layer = explosion_map
+    explosion_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
+    explosion_layer = torch.tensor(explosion_map, dtype=torch.float32)
     channels.append(explosion_layer)
 
     # Coins layer
-    coins_layer = np.zeros_like(field, dtype=np.float32)
+    coins_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for coin in coins:
         coins_layer[coin] = 1
     channels.append(coins_layer)
 
     # Bombs layer
-    bombs_layer = np.zeros_like(field, dtype=np.float32)
+    bombs_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for (x, y), timer in bombs:
         bombs_layer[x, y] = timer
     channels.append(bombs_layer)
 
     # Self layer
-    self_layer = np.zeros_like(field, dtype=np.float32)
+    self_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     self_x, self_y = self_info[3]
     self_layer[self_x, self_y] = 1
     channels.append(self_layer)
 
     # Others layer
-    others_layer = np.zeros_like(field, dtype=np.float32)
+    others_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for _, _, _, (x, y) in others:
         others_layer[x, y] = 1
     channels.append(others_layer)
 
     # Stack all channels to form a multi-channel 2D array
-    stacked_channels = np.stack(channels)
+    stacked_channels = torch.stack(channels)
 
-    print("Stacked channel is:")
-    print(stacked_channels)
+    if return_2d_features: # if we want to work with image shaped network
+        return stacked_channels
+    
+    return stacked_channels.view(-1)
 
-    # Optionally flatten the tensor to a vector
-    return stacked_channels.reshape(-1)
+###
+
+# Function to save unique data to a file, appending to existing data
+def save_data(data_to_save):
+    """
+    Save unique data to a file, appending to existing data.
+    
+    Args:
+        data_to_save (list of torch.Tensor): The list of tensors to save.
+    """
+    if not data_to_save:
+        return
+    
+    # Convert list of tensors to a single tensor
+    tensor_data = torch.stack(data_to_save)
+    
+    # Ensure uniqueness in the new data
+    unique_tensor_data = torch.unique(tensor_data, dim=0)
+    
+    if os.path.exists(DATA_FILE):
+        # Load existing data
+        existing_data = torch.load(DATA_FILE)
+        
+        # Append new unique data
+        combined_data = torch.cat([existing_data, unique_tensor_data], dim=0)
+        
+        # Ensure overall uniqueness
+        combined_data = torch.unique(combined_data, dim=0)
+    else:
+        combined_data = unique_tensor_data
+    
+    # print("WE WILL NOW SAVE THE TENSOR")
+    # Save the combined data
+    torch.save(combined_data, DATA_FILE)
