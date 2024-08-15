@@ -43,48 +43,45 @@ class Autoencoder(nn.Module):
 ### convolution based AE
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class ConvAutoencoder(nn.Module):
-    def __init__(self, input_channels=3, bottleneck_dim=16):
+    def __init__(self, input_channels=6, bottleneck_dim=16, image_size=5, num_channels_hidden_layer=[32, 64]):
         """
         Initialize the Convolutional Autoencoder model.
 
-        :param input_channels: Number of input channels in the images (3 for RGB, 1 for grayscale).
+        :param input_channels: Number of input channels in the images (6 in your case).
         :param bottleneck_dim: Dimension of the bottleneck layer.
+        :param image_size: Size of the height and width of the input images (height and width are the same).
+        :param num_channels_hidden_layer: List of integers representing the number of channels in hidden layers.
         """
         super(ConvAutoencoder, self).__init__()
 
-        # Encoder
+        self.image_size = image_size
+        self.num_channels_hidden_layer = num_channels_hidden_layer
+        self.num_nodes_linear_layer = num_channels_hidden_layer[1]*image_size*image_size
+
+        # Define the Encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(input_channels, 32, kernel_size=3, stride=2, padding=1),  # (batch, 32, 16, 16)
+            nn.Conv2d(input_channels, num_channels_hidden_layer[0], kernel_size=3, stride=1, padding=1),  # (batch, num_channels_hidden_layer[0], image_size, image_size)
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),  # (batch, 64, 8, 8)
+            nn.Conv2d(num_channels_hidden_layer[0], num_channels_hidden_layer[1], kernel_size=3, stride=1, padding=1),  # (batch, num_channels_hidden_layer[1], image_size, image_size)
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),  # (batch, 128, 4, 4)
-            nn.ReLU(),
-            nn.Flatten(),  # Flatten the tensor for the fully connected layer
-            nn.Linear(128 * 4 * 4, bottleneck_dim)  # Bottleneck layer with dimension 16
+            nn.Flatten(),  # Flatten for fully connected layer
+            nn.Linear(self.num_nodes_linear_layer, bottleneck_dim)  # Bottleneck dimension
         )
 
-        # Decoder
+        # Define the Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(bottleneck_dim, 128 * 4 * 4),
+            nn.Linear(bottleneck_dim, num_channels_hidden_layer[1] * image_size * image_size),
             nn.ReLU(),
-            nn.Unflatten(1, (128, 4, 4)),  # Reshape back to the (batch, 128, 4, 4)
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 64, 8, 8)
+            nn.Unflatten(1, (num_channels_hidden_layer[1], image_size, image_size)),  # Reshape back to feature map dimensions
+            nn.ConvTranspose2d(num_channels_hidden_layer[1], num_channels_hidden_layer[0], kernel_size=3, stride=1, padding=1),  # (batch, num_channels_hidden_layer[0], image_size, image_size)
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 32, 16, 16)
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, input_channels, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 3, 32, 32)
-            nn.Tanh()  # To ensure output is in the range [-1, 1]
+            nn.ConvTranspose2d(num_channels_hidden_layer[0], input_channels, kernel_size=3, stride=1, padding=1),  # (batch, input_channels, image_size, image_size)
+            nn.Tanh()  # Output range [-1, 1]
         )
     
     def forward(self, x):
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         return decoded
-
-# Example usage:
-# model = ConvAutoencoder(input_channels=3, bottleneck_dim=16)
-# output = model(input_tensor)
