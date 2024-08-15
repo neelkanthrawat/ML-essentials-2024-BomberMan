@@ -101,15 +101,8 @@ def train_dqn(self):
     non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)
     non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)
 
-    print("_" * 10)
-    print(f"state_batch.shape: {state_batch.shape}")
-    print(f"action_batch.shape: {action_batch.shape}")
-    print(f"reward_batch.shape: {reward_batch.shape}")
-    print(f"non_final_next_states.shape: {non_final_next_states.shape}")
-
     # Compute Q values for the current state
     q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
-    print(f"q_values shape: {q_values.shape}")
 
     # Compute target Q values
     target_q_values = reward_batch.clone()
@@ -123,6 +116,7 @@ def train_dqn(self):
 
     # Compute loss
     loss = criterion(q_values, target_q_values)
+    #print(f"loss is: {loss}") ### I can try to print this loss as well
 
     # Backpropagation
     optimizer.zero_grad()
