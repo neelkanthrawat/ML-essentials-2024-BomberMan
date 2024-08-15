@@ -75,12 +75,22 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
 # Define your Autoencoder class as before
 def state_to_features_encoder(self,game_state: dict):
 
-    self.ae.eval()
-    naive_1d_state= state_to_features(game_state=game_state)
+    naive_1d_state= state_to_features(game_state=game_state,
+                                    return_2d_features=self.conv_AE_encoded_features)
+    # print(f"naive_1d_state.shape: {naive_1d_state.shape}")
     # naive_1d_state = naive_1d_state.clone().detach().unsqueeze(0).float()
-    with torch.no_grad():
-        reduced_feature = self.ae.encoder(naive_1d_state)
-    return reduced_feature
-
+    if self.with_encoder:
+        with torch.no_grad():
+            if self.conv_AE_encoded_features:
+                reduced_feature = self.ae.encoder(naive_1d_state.unsqueeze(0))
+            else:
+                reduced_feature = self.ae.encoder(naive_1d_state)
+            ### NOTE again: I can also include case where we use MLP based encoder. But
+            ### since we are not using such an AE, we leave it here for the time being
+        # print(f"shape of the reduced features: {reduced_feature.shape}")
+        return reduced_feature.squeeze(0) # update shape is fixed. ### shape is: torch.Size([1, coding_space_dimn])### an extra 1
+    else:
+        print(f"shape of the naive features: {naive_1d_state.clone().detach().shape}")
+        return naive_1d_state.clone().detach()### shape is: torch.Size([naive_feature_dimension])
 
 

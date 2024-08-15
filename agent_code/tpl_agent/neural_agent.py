@@ -73,65 +73,54 @@ class DQNCNN(nn.Module):
 
 ### SIMPLE TRAINER FUNCTION
 def train_dqn(self):
-    """
-    Deep Q learning with experience replay. Mnih et. al (2015)
-    :param self: This object is passed to all callbacks and you can set arbitrary values.
-    
-    TODO: 
-    1. Add code for Q update with alpha as lr (not done yet)
-    2. Add code for target network (theta minus) and online network (theta).
-    """
     # Initialize loss function and optimizer
     learning_rate, alpha, gamma = self.learning_rate, self.alpha, self.gamma
-    replay_buffer = self.experience_buffer # I can also replace this with deque
-    device=self.device
-    ### defining 2 models which we need for training
-    target_network = self.model#defining target network, Q(theta -). Needed for calculating Q target. will be updated at the end of the round with online network
-    online_network = self.online_model#defining target network, Q(theta). Will be updated after each game step
-    target_network, online_network = target_network.to(device), online_network.to(device)
-    batch_size = min(len(replay_buffer), self.batch_size) # because for a new game, in the beginning, len(replay_buffer) < self.batch_size
-    
-    epochs, steps_per_epoch = 1,1
+    replay_buffer = self.experience_buffer
+    device = self.device
+
+    # Define the target and online networks
+    target_network = self.model.to(device)
+    online_network = self.online_model.to(device)
+
+    batch_size = min(len(replay_buffer), self.batch_size)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(online_network.parameters(), lr=learning_rate)
 
-    # Training loop
-    avg_train_loss_epoch = [] # i dont think we need this tbh
-    online_network.train()
-    total_train_loss = 0
-
-    # for step in range(steps_per_epoch):### tbh, I think we need only 1 step per epoch
     # Sample a mini-batch from the replay buffer
     minibatch = random.sample(replay_buffer, batch_size)
 
     # Separate the minibatch into states, actions, rewards, and next states
     state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
 
-    ### converting to tensors
+    # Convert to tensors
     state_batch = torch.stack(state_batch).to(device)
     action_batch = torch.tensor(action_batch, dtype=torch.long).to(device)
     reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(device)
-    # handling next_state_batch for cases where entries could be None
-    non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)# Create a mask for non-final (non-None) states
-    non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)# Filter out non-terminal next states and convert to tensor
-    # print("_"*10)
-    # print(f"state_batch.shape: {state_batch.shape}")
-    # print(f"action_batch.shape: {action_batch.shape}")
-    # print(f"reward_batch.shape: {reward_batch.shape}")
-    # print(f"non_final_next_states.shape: {non_final_next_states.shape}")
-    q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)# Compute Q values for the current states
-    # print(f"q values shape: {q_values.shape}")
-    # COMPUTE TARGET Q VALUES
-    # initialise target_q_values with the reward_batch
+
+    # Handle next_state_batch for cases where entries could be None
+    non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)
+    non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)
+
+    print("_" * 10)
+    print(f"state_batch.shape: {state_batch.shape}")
+    print(f"action_batch.shape: {action_batch.shape}")
+    print(f"reward_batch.shape: {reward_batch.shape}")
+    print(f"non_final_next_states.shape: {non_final_next_states.shape}")
+
+    # Compute Q values for the current state
+    q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+    print(f"q_values shape: {q_values.shape}")
+
+    # Compute target Q values
     target_q_values = reward_batch.clone()
     with torch.no_grad():
-        next_q_values = torch.zeros(batch_size, device=device)  # Initialize with zeros 
-        if len(non_final_next_states) > 0:  # Compute next_q_values only if there are non-final states
-            # returing the maximum Q values for non None next states
-            next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]# note that we are performing Q learning in narrow sense.
-            # print(f"next q values shape: {next_q_values.shape}")
-        # Add gamma * next_q_values for non-final states
+        next_q_values = torch.zeros(batch_size, device=device)
+        if len(non_final_next_states) > 0:
+            next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]
+        print(f"next_q_values.shape: {next_q_values.shape}")
+
         target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+
     # Compute loss
     loss = criterion(q_values, target_q_values)
 
@@ -139,6 +128,83 @@ def train_dqn(self):
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+# def train_dqn(self):
+#     """
+#     Deep Q learning with experience replay. Mnih et. al (2015)
+#     :param self: This object is passed to all callbacks and you can set arbitrary values.
+    
+#     TODO: 
+#     1. Add code for Q update with alpha as lr (not done yet)
+#     2. Add code for target network (theta minus) and online network (theta).
+#     """
+#     # Initialize loss function and optimizer
+#     learning_rate, alpha, gamma = self.learning_rate, self.alpha, self.gamma
+#     replay_buffer = self.experience_buffer # I can also replace this with deque
+#     device=self.device
+#     ### defining 2 models which we need for training
+#     target_network = self.model#defining target network, Q(theta -). Needed for calculating Q target. will be updated at the end of the round with online network
+#     online_network = self.online_model#defining target network, Q(theta). Will be updated after each game step
+#     target_network, online_network = target_network.to(device), online_network.to(device)
+#     batch_size = min(len(replay_buffer), self.batch_size) # because for a new game, in the beginning, len(replay_buffer) < self.batch_size
+    
+#     epochs, steps_per_epoch = 1,1
+#     criterion = nn.MSELoss()
+#     optimizer = optim.Adam(online_network.parameters(), lr=learning_rate)
+
+#     # Training loop
+#     avg_train_loss_epoch = [] # i dont think we need this tbh
+#     online_network.train()
+#     total_train_loss = 0
+
+#     # for step in range(steps_per_epoch):### tbh, I think we need only 1 step per epoch
+#     # Sample a mini-batch from the replay buffer
+#     minibatch = random.sample(replay_buffer, batch_size)
+
+#     # Separate the minibatch into states, actions, rewards, and next states
+#     state_batch, action_batch, next_state_batch, reward_batch = zip(*minibatch)
+
+#     ### converting to tensors
+#     state_batch = torch.stack(state_batch).to(device)
+#     action_batch = torch.tensor(action_batch, dtype=torch.long).to(device)
+#     reward_batch = torch.tensor(reward_batch, dtype=torch.float).to(device)
+#     # handling next_state_batch for cases where entries could be None
+#     non_final_mask = torch.tensor([s is not None for s in next_state_batch], dtype=torch.bool, device=device)# Create a mask for non-final (non-None) states
+#     non_final_next_states = torch.stack([s for s in next_state_batch if s is not None]).to(device)# Filter out non-terminal next states and convert to tensor
+#     print("_"*10)
+#     print(f"state_batch.shape: {state_batch.shape}")
+#     print(f"action_batch.shape: {action_batch.shape}")
+#     print(f"reward_batch.shape: {reward_batch.shape}")
+#     print(f"non_final_next_states.shape: {non_final_next_states.shape}")
+#     ### Compute Q values for the current state
+#     if not self.conv_AE_encoded_features: ### 1d state representation case
+#         q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+#     else: ### 2d, channeled state representation case
+#         q_values = online_network(state_batch.squeeze(1)).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+#     print(f" q values shape: {q_values.shape}")
+#     #the codeline below is the old code
+#     # q_values = online_network(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)# Compute Q values for the current states
+#     # COMPUTE TARGET Q VALUES
+#     # initialise target_q_values with the reward_batch
+#     target_q_values = reward_batch.clone()
+#     with torch.no_grad():
+#         next_q_values = torch.zeros(batch_size, device=device)  # Initialize with zeros 
+#         if len(non_final_next_states) > 0:  # Compute next_q_values only if there are non-final states
+#             # returing the maximum Q values for non None next states
+#             if self.conv_AE_encoded_features:
+#                 next_q_values[non_final_mask] = target_network(non_final_next_states.squeeze(1)).max(1)[0]# note that we are performing Q learning in narrow sense.
+#             else:
+#                 next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]# note that we are performing Q learning in narrow sense.
+#         print(f" next q values.shape: {next_q_values.shape}")
+#         # Add gamma * next_q_values for non-final states
+#         target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+#     # Compute loss
+#     loss = criterion(q_values, target_q_values)
+
+#     # Backpropagation
+#     optimizer.zero_grad()
+#     loss.backward()
+#     optimizer.step()
 
 def update_target_network(self):
     '''
