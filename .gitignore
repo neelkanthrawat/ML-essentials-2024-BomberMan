@@ -9,6 +9,10 @@ code_debug_test.ipynb
 callback_neel_test.py
 train_neel_test.py
 checking_code_callback_and_train.ipynb
+checking_collected_data.ipynb
+testing_AE.ipynb
+*.pkl
+
 
 # C extensions
 *.so
