@@ -8,9 +8,10 @@ import torch.optim as optim
 
 import events as e
 # from .callbacks import state_to_features
-from .states_to_features import state_to_features
+from .states_to_features import state_to_features, state_to_features_encoder
 import copy
 from .neural_agent import train_dqn, update_target_network
+
 
 # This is only an example!
 Transition = namedtuple('Transition',
@@ -21,7 +22,7 @@ ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 ACTIONS_DICT = {'UP':0,'RIGHT':1,'DOWN':2,'LEFT':3,'WAIT':4,'BOMB':5}
 
 # Hyper parameters -- DO modify
-TRANSITION_HISTORY_SIZE = 100  # keep only ... last transitions 
+TRANSITION_HISTORY_SIZE = 500  # keep only ... last transitions 
 RECORD_ENEMY_TRANSITIONS = 1.0  # record enemy transitions with probability ...
 
 # Events s
@@ -29,7 +30,7 @@ VALID_ACTION = "VALID_ACTION"
 
 # For training
 TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-
+AGENT_SAVED = 'my-saved-model-7x7-with-ae.pt'
 
 def setup_training(self):
     """
@@ -44,27 +45,33 @@ def setup_training(self):
     print("Then this would be called: train.py - setup_training")
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)# only stores recent transitions
     self.experience_buffer = deque(maxlen=TRANSITION_HISTORY_SIZE) #[] #store all the transitions so far
-    self.device='cpu'#torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
+    #self.device= 'cpu'#torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
 
     if not TRAIN_FROM_THE_SCRATCH:# note: self.model is Q_(theta minus) in Mnih et. al (2015) (target network)
         self.model =  self.model.to(self.device)
-        self.model.load_state_dict(torch.load("my-saved-model.pt"))
+        self.model.load_state_dict(torch.load(AGENT_SAVED))
     self.online_model = copy.deepcopy(self.model) # denoted as Q_(theta) in Mnih et al. 2015 DQN (online network)
     
     ## NOTE: target network will be updated with online network at the end of the round
     # and online network will be updated every game step in the game_events_occured
 
     ### defining the network training parameters:
-    self.learning_rate =0.0005
+    self.learning_rate =0.001 ### 60k 0.0005 was the learning rate chosen
     self.alpha, self.gamma= 0.9,0.95 #placeholder values, later we would have to optimize over these values
-    self.batch_size= 64 #We have also defined the batch size here. Cool!
+    self.batch_size= 20 #We have also defined the batch size here. Cool!
 
     ### Initialize epsilon for the epsilon-greedy strategy
-    self.epsilon_start = 0.99999  # Initial epsilon
-    self.epsilon_end = 0.8   # Final epsilon
-    self.epsilon_decay = 0.99999995  # Decay factor per step
+    self.epsilon_start = 1.0  # Initial epsilon
+    self.epsilon_end = 0.5   # Final epsilon
+    self.epsilon_decay = 0.9999995  # Decay factor per step
     self.epsilon = self.epsilon_start  # Start epsilon with the initial value
 
+    ### for the time being we are also using rule based agent to assist us in faster traning
+    self.bomb_history = deque([], 5)
+    self.coordinate_history = deque([], 20)
+    # While this timer is positive, agent will not hunt/attack opponents
+    self.ignore_others_timer = 0
+    self.current_round = 0
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, 
                         new_game_state: dict, events: List[str]):
@@ -92,8 +99,8 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     #calculate reward from events
     reward = reward_from_events(self,events)
     # states_to_features is defined in states_to_features.py
-    transition_info = Transition(state_to_features(old_game_state), ACTIONS_DICT[self_action], 
-                                state_to_features(new_game_state), reward)
+    transition_info = Transition(state_to_features_encoder(self,old_game_state), ACTIONS_DICT[self_action], 
+                                state_to_features_encoder(self,new_game_state), reward)
     self.transitions.append(transition_info)# Add datum to deque
     self.experience_buffer.append(transition_info)# add datum to list
 
@@ -119,7 +126,7 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     reward = reward_from_events(self, events)
-    transition_info = Transition(state_to_features(last_game_state), ACTIONS_DICT[last_action], None, reward)
+    transition_info = Transition(state_to_features_encoder(self,last_game_state), ACTIONS_DICT[last_action], None, reward)
     # storing the data in deque and list
     self.experience_buffer.append(transition_info)# Add the final transition list
     self.transitions.append(transition_info)# Add the final transition to the deque
@@ -127,12 +134,11 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     ## train the online model 
     train_dqn(self)
     ## update the target network
-    # s
     update_target_network(self)
     
     # Store the model
-    with open("my-saved-model.pt", "wb") as file:
-        torch.save(self.model.state_dict(), "my-saved-model.pt") ### i need to save the model for future
+    with open(AGENT_SAVED, "wb") as file:
+        torch.save(self.model.state_dict(), AGENT_SAVED) ### i need to save the model for future
         #print(f"\nmodel will be saved here after this round")
 
 
@@ -163,7 +169,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_LEFT: -1,
         e.MOVED_UP: -1,
         e.MOVED_DOWN: -1,
-        e.WAITED: -5, 
+        e.WAITED: -2, 
         e.BOMB_DROPPED: -5,
         e.INVALID_ACTION: -10,
         e.KILLED_SELF: -200,
