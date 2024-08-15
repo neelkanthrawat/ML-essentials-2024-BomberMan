@@ -1,5 +1,12 @@
 import numpy as np
 import torch
+import torch.nn as nn
+### this code implements the following:
+# 1. naive full game information
+# 2. reduced state representation using AE (encoder to be precise)
+
+###
+AE_PRETRAINED_FILE='D:\\Desktop\\master_scientific_computing\\second_semester\\ml essentials\\Final Project\\ML-essentials-2024-BomberMan\\ae_model_weights_5x5.pth'
 
 def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tensor:
     """
@@ -62,3 +69,18 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
         return stacked_channels
     
     return stacked_channels.view(-1)
+
+
+### reduced state, loading the trained autoencoder
+# Define your Autoencoder class as before
+def state_to_features_encoder(self,game_state: dict):
+
+    self.ae.eval()
+    naive_1d_state= state_to_features(game_state=game_state)
+    # naive_1d_state = naive_1d_state.clone().detach().unsqueeze(0).float()
+    with torch.no_grad():
+        reduced_feature = self.ae.encoder(naive_1d_state)
+    return reduced_feature
+
+
+
