@@ -116,7 +116,7 @@ def train_dqn(self):
 
     # Compute loss
     loss = criterion(q_values, target_q_values)
-    print(f"loss is: {loss}") ### I can try to print this loss as well
+    # print(f"loss is: {loss}") ### I can try to print this loss as well
 
     # Backpropagation
     optimizer.zero_grad()
