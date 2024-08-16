@@ -9,7 +9,7 @@ import torch.optim as optim
 
 from .states_to_features import state_to_features, state_to_features_encoder
 from .neural_agent import DQNCNN, DQNMLP
-from .rule_based_agent_action import rule_based_action, look_for_targets, reset_self
+# from .rule_based_agent_action import rule_based_action, look_for_targets, reset_self
 from .autoencoder_feature_reduction import Autoencoder, ConvAutoencoder
 
 # Get the directory of the current script
@@ -19,7 +19,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 AE_WEIGHTS_PATH = os.path.join(current_dir,'files_ae', 'conv2_ae_model_weights_5x5.pth')
 
-WITH_CONV_AE=0
+WITH_CONV_AE=True
 
 if WITH_CONV_AE:### shape of the reduced features: torch.Size([1, 20]):
     AGENT_SAVED = 'my-saved-model-5x5-with-conv2-ae.pt'
@@ -28,7 +28,7 @@ if WITH_CONV_AE:### shape of the reduced features: torch.Size([1, 20]):
 else: ### shape of the naive features: torch.Size([150])
     AGENT_SAVED = 'my-saved-model-5x5-naive.pt'
     RETURN_2D_FEAT=False
-    WITH_ENCODER=False
+    WITH_ENCODER=False 
 
 
 def setup(self):
