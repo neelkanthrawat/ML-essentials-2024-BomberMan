@@ -15,7 +15,7 @@ from .neural_agent import train_dqn, update_target_network
 
 # For training
 TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-AGENT_SAVED = 'my-saved-model-5x5-naive.pt'
+AGENT_SAVED = 'my-saved-model-17x17-local-state-info.pt'
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 experience_buffer = []
@@ -173,7 +173,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.KILLED_SELF: -200,
         e.GOT_KILLED: -1000,
         e.CRATE_DESTROYED: 30
-    }
+    } 
     reward_sum = 0
     for event in events:
         if event in game_rewards:
