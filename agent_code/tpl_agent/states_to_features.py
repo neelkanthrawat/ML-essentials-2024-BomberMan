@@ -8,6 +8,56 @@ import torch.nn as nn
 ###
 AE_PRETRAINED_FILE='D:\\Desktop\\master_scientific_computing\\second_semester\\ml essentials\\Final Project\\ML-essentials-2024-BomberMan\\ae_model_weights_5x5.pth'
 
+
+def get_subblock_with_padding(tensor, r, c, block_size=3, padding_value_list=None):
+    """
+    Extract a sub-block from the input 3D tensor such that the given coordinates (r, c)
+    are at the center of the sub-block. If the sub-block goes out of bounds, pad with specific values
+    provided in padding_value_list.
+
+    Parameters:
+    tensor (torch.Tensor): The large input 3D tensor with shape (num_channels, height, width).
+    r (int): Row index of the center.
+    c (int): Column index of the center.
+    block_size (int): Size of the sub-block (block_size x block_size). Must be odd.
+    padding_value_list (list): List of padding values for each channel. Length should match num_channels.
+
+    Returns:
+    torch.Tensor: The sub-block centered at (r, c) with shape (num_channels, block_size, block_size),
+                  padded with the corresponding values from padding_value_list if necessary.
+    """
+    if block_size % 2 == 0:
+        raise ValueError("block_size must be an odd number to have a center.")
+    
+    num_channels, height, width = tensor.shape
+
+    if padding_value_list is None:
+        padding_value_list = [5000] * num_channels
+    elif len(padding_value_list) != num_channels:
+        raise ValueError("Length of padding_value_list must match the number of channels in the tensor.")
+    
+    half_size = block_size // 2
+    
+    # Initialize the sub-block with the padding values for each channel
+    subblock = torch.stack([torch.full((block_size, block_size), padding_value_list[i]) for i in range(num_channels)])
+    
+    # Calculate the region within the original tensor that overlaps with the sub-block
+    row_start = max(r - half_size, 0)
+    row_end = min(r + half_size + 1, height)
+    col_start = max(c - half_size, 0)
+    col_end = min(c + half_size + 1, width)
+    
+    # Calculate the region within the sub-block where the original tensor values will be placed
+    sub_row_start = half_size - (r - row_start)
+    sub_row_end = sub_row_start + (row_end - row_start)
+    sub_col_start = half_size - (c - col_start)
+    sub_col_end = sub_col_start + (col_end - col_start)
+    
+    # Place the original tensor values into the appropriate region of the sub-block
+    subblock[:, sub_row_start:sub_row_end, sub_col_start:sub_col_end] = tensor[:, row_start:row_end, col_start:col_end]
+    
+    return subblock
+
 def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tensor:
     """
     Converts the game state to a multi-channel feature tensor using PyTorch.
@@ -65,10 +115,18 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     # Stack all channels to form a multi-channel 2D array
     stacked_channels = torch.stack(channels)
 
+    # padding values for the case when agent is at the corner
+    padding_value_list=[-1,0,0,5,0,0]
+    subblock_info = get_subblock_with_padding(tensor=stacked_channels,
+                            r=self_x, c=self_y, block_size=5,
+                            padding_value_list=padding_value_list
+                            )
     if return_2d_features: # if we want to work with image shaped network
-        return stacked_channels
+        # return stacked_channels
+        return subblock_info.float()
     
-    return stacked_channels.view(-1)
+    # return stacked_channels.view(-1)
+    return subblock_info.view(-1).float()
 
 
 ### reduced state, loading the trained autoencoder
@@ -90,7 +148,7 @@ def state_to_features_encoder(self,game_state: dict):
         # print(f"shape of the reduced features: {reduced_feature.shape}")
         return reduced_feature.squeeze(0) # update shape is fixed. ### shape is: torch.Size([1, coding_space_dimn])### an extra 1
     else:
-        print(f"shape of the naive features: {naive_1d_state.clone().detach().shape}")
+        # print(f"shape of the naive features: {naive_1d_state.clone().detach().shape}")
         return naive_1d_state.clone().detach()### shape is: torch.Size([naive_feature_dimension])
 
 
