@@ -19,14 +19,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 AE_WEIGHTS_PATH = os.path.join(current_dir,'files_ae', 'conv2_ae_model_weights_5x5.pth')
 
-WITH_CONV_AE=True
+WITH_CONV_AE=False
+image_size=5 ### local image info size
 
 if WITH_CONV_AE:### shape of the reduced features: torch.Size([1, 20]):
     AGENT_SAVED = 'my-saved-model-5x5-with-conv2-ae.pt'
     RETURN_2D_FEAT=True 
     WITH_ENCODER=True
 else: ### shape of the naive features: torch.Size([150])
-    AGENT_SAVED = 'my-saved-model-5x5-naive.pt'
+    AGENT_SAVED = 'my-saved-model-17x17-local-state-info.pt'
     RETURN_2D_FEAT=False
     WITH_ENCODER=False 
 
@@ -46,7 +47,6 @@ def setup(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     """
     print("First checking Callbacks: setup")
-    image_size=5
     print(f"----IMAGE SIZE IS: -----: {image_size}")
     input_size = image_size*image_size* 6  # Adjust this based on input size (example: 8x8 field with 6 channels)
     num_actions = len(ACTIONS)
