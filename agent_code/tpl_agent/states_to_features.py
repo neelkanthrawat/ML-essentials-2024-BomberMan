@@ -9,50 +9,6 @@ import torch.nn as nn
 ###
 AE_PRETRAINED_FILE='D:\\Desktop\\master_scientific_computing\\second_semester\\ml essentials\\Final Project\\ML-essentials-2024-BomberMan\\ae_model_weights_5x5.pth'
 
-# A-Star Search function for path layers, input is the field, the start (agents position)
-# and the goal ( the nearest element (coin,opponent,....))
-# it returns the shortest path
-def a_star_search(field, start, goal):
-        """
-        A* search algorithm to find the shortest path from start to goal on the field.
-        :param field: The game field.
-        :param start: Starting position (x, y).
-        :param goal: Goal position (x, y).
-        :return: List of positions representing the path from start to goal.
-        """
-        def heuristic(a, b):
-            return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-        def get_neighbors(pos):
-            x, y = pos
-            neighbors = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-            return [(nx, ny) for nx, ny in neighbors if 0 <= nx < field.shape[0] and 0 <= ny < field.shape[1] and field[nx, ny] == 0]
-
-        open_list = []
-        heapq.heappush(open_list, (0 + heuristic(start, goal), 0, start))
-        came_from = {start: None}
-        cost_so_far = {start: 0}
-
-        while open_list:
-            _, current_cost, current_pos = heapq.heappop(open_list)
-
-            if current_pos == goal:
-                path = []
-                while current_pos:
-                    path.append(current_pos)
-                    current_pos = came_from[current_pos]
-                return path[::-1]
-
-            for neighbor in get_neighbors(current_pos):
-                new_cost = current_cost + 1
-                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
-                    cost_so_far[neighbor] = new_cost
-                    priority = new_cost + heuristic(neighbor, goal)
-                    heapq.heappush(open_list, (priority, new_cost, neighbor))
-                    came_from[neighbor] = current_pos
-
-        return []  # Return an empty path if no path is found
-
 def get_subblock_with_padding(tensor, r, c, block_size=3, padding_value_list=None):
     """
     Extract a sub-block from the input 3D tensor such that the given coordinates (r, c)
@@ -155,24 +111,6 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     for _, _, _, (x, y) in others:
         others_layer[x, y] = 1
     channels.append(others_layer)
-
-    # Shortest path to the nearest coin using A* search
-    '''path_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
-    if coins:  # Check if there are any coins
-        min_path = None
-        min_distance = float('inf')
-        for coin in coins:
-            path = a_star_search(field, (self_x, self_y), coin)
-            if path and len(path) <= min_distance:
-                # If there are multiple coins at the same distance, this will select the first one
-                min_distance = len(path)
-                min_path = path
-
-        if min_path:
-            for (x, y) in min_path:
-                path_layer[x, y] = 1
-    print("path_layer is: ",path_layer)
-    channels.append(path_layer)'''
 
     # Stack all channels to form a multi-channel 2D array
     stacked_channels = torch.stack(channels)
