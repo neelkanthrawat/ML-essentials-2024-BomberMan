@@ -14,8 +14,8 @@ import copy
 from .neural_agent import train_dqn, update_target_network
 
 # For training
-TRAIN_FROM_THE_SCRATCH=True ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-AGENT_SAVED = 'my-saved-model-17x17-local-state-info.pt'
+TRAIN_FROM_THE_SCRATCH= False ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
+AGENT_SAVED = 'complex1.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'#'my-saved-model-7x7-local-state-info-3-trial.pt' #'my-saved-model-17x17-local-state-a-star-info.pt'#'my-saved-model-17x17-local-state-info.pt'
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 experience_buffer = []
@@ -55,13 +55,13 @@ def setup_training(self):
 
     ### defining the network training parameters:
     self.learning_rate =0.001 ### 60k 0.0005 was the learning rate chosen
-    self.alpha, self.gamma= 0.9,0.95 #placeholder values, later we would have to optimize over these values
-    self.batch_size= 20 #We have also defined the batch size here. Cool!
+    self.alpha, self.gamma= 0.9,0.5#0.95 #placeholder values, later we would have to optimize over these values
+    self.batch_size= 64#20(it was 20 even for local state representation) #We have also defined the batch size here. Cool!
 
     ### Initialize epsilon for the epsilon-greedy strategy
     self.epsilon_start = 1.0  # Initial epsilon
-    self.epsilon_end = 0.5   # Final epsilon
-    self.epsilon_decay = 0.9999995  # Decay factor per step
+    self.epsilon_end = 0.1   # Final epsilon
+    self.epsilon_decay = 0.99995  # Decay factor per step
     self.epsilon = self.epsilon_start  # Start epsilon with the initial value
 
     ### for the time being we are also using rule based agent to assist us in faster traning
@@ -167,7 +167,7 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_LEFT: -1,
         e.MOVED_UP: -1,
         e.MOVED_DOWN: -1,
-        e.WAITED: -2, 
+        e.WAITED: -1, ### up until now I was using -2
         e.BOMB_DROPPED: -5,
         e.INVALID_ACTION: -10,
         e.KILLED_SELF: -200,
