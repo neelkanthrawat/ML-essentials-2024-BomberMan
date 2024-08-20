@@ -95,6 +95,7 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
         coins_layer[coin] = 1
     channels.append(coins_layer)
 
+
     # Bombs layer
     bombs_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for (x, y), timer in bombs:
@@ -137,7 +138,8 @@ def bfs_find_free_tile(mask, start=(2, 2)):
     
     # Initialize the queue with the starting position
     queue = deque([start])
-    
+
+
     # Initialize a set for visited positions
     visited = set()
     visited.add(start)
@@ -163,8 +165,8 @@ def bfs_find_free_tile(mask, start=(2, 2)):
         for direction in directions:
             new_x, new_y = x + direction[0], y + direction[1]
             
-            # Check if the new position is within the grid bounds and not visited
-            if 0 <= new_x < mask.size(0) and 0 <= new_y < mask.size(1) and (new_x, new_y) not in visited:
+            # Check if the new position is not visited
+            if (new_x, new_y) not in visited:
                 if mask[new_x, new_y].item() != -1:  # Only enqueue if it's not a wall/crate (-1)
                     queue.append((new_x, new_y))
                     visited.add((new_x, new_y))
