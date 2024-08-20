@@ -145,13 +145,13 @@ def bfs_find_free_tile(mask, start=(2, 2)):
     parents = {}
     
     while queue:
-        current_pos, path = queue.popleft()
+        current_pos = queue.popleft()
         x, y = current_pos
         
         # Check if the current tile is free
         if mask[x, y].item() == 1:
             output = torch.zeros_like(mask, dtype=torch.float32)
-            # Mark free tile 
+            # Mark the first free tile 
             output[(x, y)] = 1
             # Backtrack from the free tile to the start using the parents dictionary
             while current_pos in parents:
