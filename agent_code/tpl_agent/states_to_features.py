@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import heapq
+from collections import deque
 import torch.nn as nn
 ### this code implements the following:
 # 1. naive full game information
@@ -128,6 +129,43 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     # return stacked_channels.view(-1)
     return subblock_info.view(-1).float()
 
+# breath first search for finding the next free tile to outrun a bomb explosion.
+# mask being the input mask, start is the agents position
+def bfs_find_free_tile(mask, start=(2, 2)):
+    # Directions for moving in the grid (up, down, left, right)
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    
+    # Initialize the queue with the starting position
+    queue = deque([start])
+    
+    # Initialize a set for visited positions
+    visited = set()
+    visited.add(start)
+    
+    while queue:
+        current_pos = queue.popleft()
+        x, y = current_pos
+        
+        # Check if the current tile is free
+        if mask[x, y].item() == 1:
+            output = torch.zeros_like(mask, dtype=torch.float32)
+            # Set the found free tile position to 1
+            output[x, y] = 1
+            return output
+        
+        # Explore neighboring positions
+        for direction in directions:
+            new_x, new_y = x + direction[0], y + direction[1]
+            
+            # Check if the new position is within the grid bounds and not visited
+            if 0 <= new_x < mask.size(0) and 0 <= new_y < mask.size(1) and (new_x, new_y) not in visited:
+                # Only enqueue if it's not a wall/crate (-1)
+                if mask[new_x, new_y].item() != -1:
+                    queue.append((new_x, new_y))
+                    visited.add((new_x, new_y))
+    
+    # If no free tile is found, return None or handle it appropriately
+    return torch.zeros_like(mask, dtype=torch.float32)
 
 ### reduced state, loading the trained autoencoder
 # Define your Autoencoder class as before
