@@ -130,7 +130,7 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     return subblock_info.view(-1).float()
 
 # breath first search for finding the next free tile to outrun a bomb explosion.
-# mask being the input mask, start is the agents position
+# mask being the input, start is the agents position
 def bfs_find_free_tile(mask, start=(2, 2)):
     # Directions for moving in the grid (up, down, left, right)
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -141,16 +141,22 @@ def bfs_find_free_tile(mask, start=(2, 2)):
     # Initialize a set for visited positions
     visited = set()
     visited.add(start)
+    # so we can do backtracking to find the path
+    parents = {}
     
     while queue:
-        current_pos = queue.popleft()
+        current_pos, path = queue.popleft()
         x, y = current_pos
         
         # Check if the current tile is free
         if mask[x, y].item() == 1:
             output = torch.zeros_like(mask, dtype=torch.float32)
-            # Set the found free tile position to 1
-            output[x, y] = 1
+            # Mark free tile 
+            output[(x, y)] = 1
+            # Backtrack from the free tile to the start using the parents dictionary
+            while current_pos in parents:
+                output[current_pos] = 1
+                current_pos = parents[current_pos]
             return output
         
         # Explore neighboring positions
@@ -159,10 +165,10 @@ def bfs_find_free_tile(mask, start=(2, 2)):
             
             # Check if the new position is within the grid bounds and not visited
             if 0 <= new_x < mask.size(0) and 0 <= new_y < mask.size(1) and (new_x, new_y) not in visited:
-                # Only enqueue if it's not a wall/crate (-1)
-                if mask[new_x, new_y].item() != -1:
+                if mask[new_x, new_y].item() != -1:  # Only enqueue if it's not a wall/crate (-1)
                     queue.append((new_x, new_y))
                     visited.add((new_x, new_y))
+                    parents[(new_x, new_y)] = (x, y)  # Record the parent
     
     # If no free tile is found, return None or handle it appropriately
     return torch.zeros_like(mask, dtype=torch.float32)
