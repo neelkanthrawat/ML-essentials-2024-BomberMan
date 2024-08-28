@@ -72,8 +72,8 @@ def create_combined_mask(field: torch.Tensor, explosion_map: torch.Tensor) -> to
                             >0: Explosions or danger (e.g., countdown timers)
         
         :return: A tensor representing the combined mask.
-                -1: Inaccessible (wall or explosion)
-                0: Accessible (free space)
+                -1: Inaccessible (walls)
+                0: tiles which will explode
                 1: Crate (destructible)
     """
     # Initialize the combined mask with the same shape as the field
@@ -83,15 +83,107 @@ def create_combined_mask(field: torch.Tensor, explosion_map: torch.Tensor) -> to
     combined_mask[field == -1] = -1
     
     # Mark crates (1 in the field) in the combined mask
-    combined_mask[field == 1] = -1
+    combined_mask[field == 1] = -2 # earlier crates were also -1.
     
     # Mark explosion danger zones (non-zero in the explosion map) as inaccessible
     combined_mask[explosion_map != 5] = 0
     
     return combined_mask
 
+# breath first search for finding the next free tile to outrun a bomb explosion.
+# mask being the input, start is the agents position
+def bfs_find_free_tile(mask, start=(2, 2)):
+    if mask[start].item() != 0:### if not in the danger tile, then just return 0 tensor
+        return torch.zeros_like(mask, dtype = torch.float32)
+    
+    if np.random.choice([0,1])==1 :
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    else:
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    queue = deque([start])
+    visited = set()
+    visited.add(start)
+    parents = {}
+    
+    while queue:
+        current_pos = queue.popleft()
+        x, y = current_pos
+        
+        # Check if the current tile is free
+        if mask[x, y].item() == 1:
+            output = torch.zeros_like(mask, dtype=torch.float32)
+            output[(x, y)] = 1
+            temp=2
+            while current_pos in parents:
+                current_pos = parents[current_pos]
+                # output[current_pos] = 1
+                output[current_pos]=temp
+                temp+=1
+            output[start]=0
+            return output
+        
+        # Explore neighboring positions
+        for direction in directions:
+            new_x, new_y = x + direction[0], y + direction[1]
+            
+            # Check if the new position is within bounds and not visited
+            if 0 <= new_x < mask.shape[0] and 0 <= new_y < mask.shape[1]:
+                if (new_x, new_y) not in visited:
+                    if mask[new_x, new_y].item() != -1 and mask[new_x, new_y].item()!=-2 :  # Only enqueue if it's not a wall/crate (-1)
+                        queue.append((new_x, new_y))
+                        visited.add((new_x, new_y))
+                        parents[(new_x, new_y)] = (x, y)  # Record the parent
+    
+    # If no free tile is found, return an empty grid
+    return torch.zeros_like(mask, dtype=torch.float32)
 
-def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tensor:
+def bfs_find_next_crate(mask, start=(2, 2)):
+    if mask[start].item() == 0:### if the agent is in the danger tile, then just return 0 tensor
+        return torch.zeros_like(mask, dtype = torch.float32)
+    
+    if np.random.choice([0,1]) == 1:
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    else:
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+    queue = deque([start])
+    visited = set()
+    visited.add(start)
+    parents = {}
+    
+    while queue:
+        current_pos = queue.popleft()
+        x, y = current_pos
+        
+        # Check if the current tile is not free
+        if mask[x, y].item() == -2:
+            output = torch.zeros_like(mask, dtype=torch.float32)
+            temp=1
+            while current_pos in parents:
+                current_pos = parents[current_pos]
+                # output[current_pos] = 1
+                output[current_pos] = temp
+                temp+=1
+            output[start] = 0
+            return output
+        
+        # Explore neighboring positions
+        for direction in directions:
+            new_x, new_y = x + direction[0], y + direction[1]
+            
+            # Check if the new position is within bounds and not visited
+            if 0 <= new_x < mask.shape[0] and 0 <= new_y < mask.shape[1]:
+                if (new_x, new_y) not in visited:
+                    if mask[new_x, new_y].item() != -1 and mask[new_x, new_y].item() != 0:  # Only enqueue if it's not a wall/crate (-1)
+                        queue.append((new_x, new_y))
+                        visited.add((new_x, new_y))
+                        parents[(new_x, new_y)] = (x, y)  # Record the parent
+    
+    # If no free tile is found, return an empty grid
+    return torch.zeros_like(mask, dtype=torch.float32)
+
+
+
+def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.Tensor:
     """
     Converts the game state to a multi-channel feature tensor using PyTorch.
     
@@ -125,6 +217,7 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     channels.append(bomb_map)
     # create the combined mask
     comb_mask = create_combined_mask(field=field_layer, explosion_map=bomb_map)
+    ### the combined mask would be the same for bfs free tile search and bfs crate search.
 
     # Coins layer
     coins_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
@@ -148,9 +241,16 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     subblock_comb_mask = get_subblock_with_padding(tensor = comb_mask.unsqueeze(0),r=self_x,c=self_y,
                                                 block_size=5,padding_value_list=[-1])
     subblock_comb_mask = subblock_comb_mask.squeeze(0)
-    # create the bfs layer now
-    bfs_layer = bfs_find_free_tile(mask = subblock_comb_mask, start=(2,2))# later start would be (3,3)
-
+    # print("\n subblock comb mask:"); print(subblock_comb_mask.transpose(0,1))
+    # create the bfs layer now: 1. for nearest crate and the safe location
+    bfs_layer_nearest_crate = bfs_find_next_crate(mask = subblock_comb_mask, start=(2,2))# locate the position to bomb
+    bfs_layer_safe_location = bfs_find_free_tile(mask = subblock_comb_mask, start=(2,2))# locate the position of nearest safe tile
+    # print(f"bf layer nearest crate is:"); print(bfs_layer_nearest_crate.transpose(0,1))
+    self.close_to_crate = torch.max(bfs_layer_nearest_crate)
+    self.close_to_safe_tile = torch.max(bfs_layer_safe_location)
+    # print(f"bf layer nearest safe tile is:"); print(bfs_layer_safe_location.transpose(0,1))
+    bfs_layer = bfs_layer_nearest_crate + bfs_layer_nearest_crate
+    
     # Others layer
     # others_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     # for _, _, _, (x, y) in others:
@@ -170,9 +270,12 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
                             r=self_x, c=self_y, block_size=5,
                             padding_value_list=padding_value_list
                             )
-    # add bfs layer into sub-block layer
-    subblock_info = torch.cat((subblock_info, bfs_layer.unsqueeze(0))
-                            , dim=0)
+    ## add bfs layer into sub-block layers
+    subblock_info = torch.cat((subblock_info, bfs_layer.unsqueeze(0)), dim=0)
+    # # nearest crate to place bomb at:
+    # subblock_info = torch.cat((subblock_info, bfs_layer_nearest_crate.unsqueeze(0)), dim=0)
+    # # nearest safe tile
+    # subblock_info = torch.cat((subblock_info, bfs_layer_safe_location.unsqueeze(0)), dim=0)
     # print("_"*10)
     # print("let's check new sub-block info is:")
     # print(subblock_info)
@@ -183,45 +286,6 @@ def state_to_features(game_state: dict, return_2d_features=False) -> torch.Tenso
     # return stacked_channels.view(-1)
     return subblock_info.view(-1).float()
 
-# breath first search for finding the next free tile to outrun a bomb explosion.
-# mask being the input, start is the agents position
-from collections import deque
-import torch
-
-def bfs_find_free_tile(mask, start=(2, 2)):
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-    queue = deque([start])
-    visited = set()
-    visited.add(start)
-    parents = {}
-    
-    while queue:
-        current_pos = queue.popleft()
-        x, y = current_pos
-        
-        # Check if the current tile is free
-        if mask[x, y].item() == 1:
-            output = torch.zeros_like(mask, dtype=torch.float32)
-            output[(x, y)] = 1
-            while current_pos in parents:
-                current_pos = parents[current_pos]
-                output[current_pos] = 1
-            return output
-        
-        # Explore neighboring positions
-        for direction in directions:
-            new_x, new_y = x + direction[0], y + direction[1]
-            
-            # Check if the new position is within bounds and not visited
-            if 0 <= new_x < mask.shape[0] and 0 <= new_y < mask.shape[1]:
-                if (new_x, new_y) not in visited:
-                    if mask[new_x, new_y].item() != -1:  # Only enqueue if it's not a wall/crate (-1)
-                        queue.append((new_x, new_y))
-                        visited.add((new_x, new_y))
-                        parents[(new_x, new_y)] = (x, y)  # Record the parent
-    
-    # If no free tile is found, return an empty grid
-    return torch.zeros_like(mask, dtype=torch.float32)
 
 # def bfs_find_free_tile(mask, start=(2, 2)):
 #     # Directions for moving in the grid (up, down, left, right)
@@ -270,7 +334,7 @@ def bfs_find_free_tile(mask, start=(2, 2)):
 # Define your Autoencoder class as before
 def state_to_features_encoder(self,game_state: dict):
 
-    naive_1d_state= state_to_features(game_state=game_state,
+    naive_1d_state= state_to_features(self=self,game_state=game_state,
                                     return_2d_features=self.conv_AE_encoded_features)
     # print(f"naive_1d_state.shape: {naive_1d_state.shape}")
     # naive_1d_state = naive_1d_state.clone().detach().unsqueeze(0).float()
