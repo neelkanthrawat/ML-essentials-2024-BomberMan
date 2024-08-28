@@ -9,7 +9,7 @@ import torch.optim as optim
 
 from .states_to_features import state_to_features, state_to_features_encoder
 from .neural_agent import DQNCNN, DQNMLP
-# from .rule_based_agent_action import rule_based_action, look_for_targets, reset_self
+from .rule_based_agent_action import act_rule_based
 from .autoencoder_feature_reduction import Autoencoder, ConvAutoencoder
 
 # Get the directory of the current script
@@ -27,9 +27,11 @@ if WITH_CONV_AE:### shape of the reduced features: torch.Size([1, 20]):
     RETURN_2D_FEAT=True 
     WITH_ENCODER=True
 else: ### shape of the naive features: torch.Size([150])
-    AGENT_SAVED = 'my-saved-model-17x17-local-state-info.pt'
+    AGENT_SAVED = 'complex44_2.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'
     RETURN_2D_FEAT=False
     WITH_ENCODER=False 
+
+COUNT=1
 
 
 def setup(self):
@@ -48,9 +50,9 @@ def setup(self):
     """
     print("First checking Callbacks: setup")
     print(f"----IMAGE SIZE IS: -----: {image_size}")
-    input_size = image_size*image_size* 6  # Adjust this based on input size (example: 8x8 field with 6 channels)
+    input_size = image_size*image_size* 6#6: when we were testing if the model escapes its own bomb  # Adjust this based on input size (example: 8x8 field with 6 channels)
     num_actions = len(ACTIONS)
-    hidden_layers_sizes = [12,8]  # Example hidden layer sizes hidden layer (older):[64,16]
+    hidden_layers_sizes = [32,16,8]#[12,8]  # Example hidden layer sizes hidden layer (older):[64,16]
     ### add info for the autoencoder; we will use it for feature reduction and space representation
     # hidden_layers_ae_list = [124*2]### this was when we were using a linear AE
     num_channels_hidden_layer= [16,32]
@@ -58,7 +60,10 @@ def setup(self):
     self.device= 'cpu' ### SETTING UP THE DEVICE ### LATER WE WILL CHANGE IT TO CUDA
     self.conv_AE_encoded_features = RETURN_2D_FEAT
     self.with_encoder = WITH_ENCODER
-
+    self.drop_bomb =2
+    # some varaible we need for aux
+    self.close_to_crate, self.prev_close_to_crate=100,100# initialise to very high value
+    self.close_to_safe_tile, self.prev_close_to_safe_tile = 0,0### initialise to 0
     if self.train or not os.path.isfile(AGENT_SAVED): # if training phase
         self.logger.info("Setting up model from scratch.")
         if self.with_encoder: ### if you have used encoder for state representation
@@ -107,25 +112,51 @@ def act(self, game_state: dict) -> str:
         self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
         prob = random.random()
         if prob < self.epsilon: ### 
-            self.logger.debug("Choosing action purely at random for exploration.")
-            actions_for_coin_collection=['UP', 'RIGHT', 'DOWN', 'LEFT']
-            action=np.random.choice(actions_for_coin_collection)
-            return action
+            
+            # actions_for_coin_collection=['UP', 'RIGHT', 'DOWN', 'LEFT']
+            # action=np.random.choice(ACTIONS)
+            # return action
+            # if self.drop_bomb%5 == 0:#np.random.choice([7,11,15])
+            #     self.drop_bomb+=1
+            #     return 'BOMB'
+            # else:
+            # self.drop_bomb+=1
+            if prob < 0.5*self.epsilon:
+                # print("random")
+                self.logger.debug("Choosing action purely at random for exploration.")
+                return np.random.choice(['UP', 'RIGHT', 'DOWN', 'LEFT', 'BOMB'])
+            elif 0.5*self.epsilon<=prob<self.epsilon:
+                # print("rule based")
+                action = act_rule_based(self, game_state=game_state)
+                if action ==None:
+                    action = np.random.choice(['UP', 'RIGHT', 'DOWN', 'LEFT', 'BOMB','WAIT'])
+                return action
+            
         else:
+            # print("agent")
             self.logger.debug("Choosing action based on model prediction for exploitation.")
             # state = state.clone().detach().unsqueeze(0).float()#torch.tensor(state, dtype=torch.float32).unsqueeze(0)  # Add batch dimension
             state = state_to_features_encoder(self, game_state)
             with torch.no_grad():
                 q_values = self.model(state)
-            action_index = torch.argmax(q_values).item()
+            action_index = torch.argmax(q_values).item()    # If no free tile is found, re=self, game_state=game_state)
             return ACTIONS[action_index]
     else:
         # Placeholder for non-training mode
         ### TODO: ADD CODE TO RETURN ACTION USING THE TRAINED Q-NN MODEL
+        # print(f"STEP NUMBER: {self.count}")
+        # self.count+=1
         self.model.eval()
         self.logger.debug("Choosing action using trained model (non-training mode).")
+        # if self.drop_bomb%10 == 0:
+        #         self.drop_bomb+=1
+        #         return 'BOMB'
+        # else:
+            # self.drop_bomb+=1
         state = state_to_features_encoder(self, game_state)
         with torch.no_grad():
             q_values = self.model(state)
         action_index = torch.argmax(q_values).item()
+        print("action:", ACTIONS[action_index])
+        
         return ACTIONS[action_index]
