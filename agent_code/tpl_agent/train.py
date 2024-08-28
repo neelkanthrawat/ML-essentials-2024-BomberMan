@@ -14,14 +14,24 @@ import copy
 from .neural_agent import train_dqn, update_target_network
 
 # For training
-TRAIN_FROM_THE_SCRATCH= False ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-AGENT_SAVED = 'complex1.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'#'my-saved-model-7x7-local-state-info-3-trial.pt' #'my-saved-model-17x17-local-state-a-star-info.pt'#'my-saved-model-17x17-local-state-info.pt'
+TRAIN_FROM_THE_SCRATCH= 1 ### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
+AGENT_SAVED = 'complex44_2.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'#'my-saved-model-7x7-local-state-info-3-trial.pt' #'my-saved-model-17x17-local-state-a-star-info.pt'#'my-saved-model-17x17-local-state-info.pt'
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 experience_buffer = []
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 ACTIONS_DICT = {'UP':0,'RIGHT':1,'DOWN':2,'LEFT':3,'WAIT':4,'BOMB':5}
+
+#### define custom events
+CLOSE_T0_CRATE = 'CLOSE TO CRATE'
+AWAY_FROM_CRATE = 'AWAY FROM CRATE'
+CLOSE_TO_SAFE_TILE = 'CLOSE TO SAFE TILE'
+AWAY_FROM_SAFE_TILE = 'AWAY FROM SAFE TILE'
+BOMB_NEAR_CRATE = 'BOMB NEAR CRATE'
+BOMB_FAR_FROM_CRATE = 'BOMB_FAR_FROM_CRATE'
+AGENT_LOOP = 'AGENT_LOOP'
+
 
 # Hyper parameters -- DO modify
 TRANSITION_HISTORY_SIZE = 500  # keep only ... last transitions 
@@ -40,7 +50,7 @@ def setup_training(self):
     """
     # Example: Setup an array that will note transition tuples
     # (s, a, r, s')
-    print("Then this would be called: train.py - setup_training")
+    #print("Then this would be called: train.py - setup_training")
     self.transitions = deque(maxlen=TRANSITION_HISTORY_SIZE)# only stores recent transitions
     self.experience_buffer = deque(maxlen=TRANSITION_HISTORY_SIZE) #[] #store all the transitions so far
     #self.device= 'cpu'#torch.device("cuda" if torch.cuda.is_available() else "cpu") # placeholder values
@@ -55,21 +65,22 @@ def setup_training(self):
 
     ### defining the network training parameters:
     self.learning_rate =0.001 ### 60k 0.0005 was the learning rate chosen
-    self.alpha, self.gamma= 0.9,0.5#0.95 #placeholder values, later we would have to optimize over these values
+    self.alpha, self.gamma= 0.9,0.6#0.65#0.95 #placeholder values, later we would have to optimize over these values
     self.batch_size= 64#20(it was 20 even for local state representation) #We have also defined the batch size here. Cool!
-
+    #### i changed gamma to 0.5 and it stopped working. only o/p was waiting
     ### Initialize epsilon for the epsilon-greedy strategy
     self.epsilon_start = 1.0  # Initial epsilon
-    self.epsilon_end = 0.1   # Final epsilon
-    self.epsilon_decay = 0.99995  # Decay factor per step
-    self.epsilon = self.epsilon_start  # Start epsilon with the initial value
-
-    ### for the time being we are also using rule based agent to assist us in faster traning
-    self.bomb_history = deque([], 5)
-    self.coordinate_history = deque([], 20)
-    # While this timer is positive, agent will not hunt/attack opponents
-    self.ignore_others_timer = 0
+    self.epsilon_end = 0.8#0.1   # Final epsilon
+    self.epsilon_decay = 0.99999995#0.9999995  # Decay factor per step
+    self.epsilon = self.epsilon_start  # Start epsilon with the i,
     self.current_round = 0
+    
+    ### some variables we need for auxiliary reward:
+    self.close_to_crate, self.prev_close_to_crate=100,100# initialise to very high value
+    self.close_to_safe_tile, self.prev_close_to_safe_tile = 0,0### initialise to 0
+    self.prev_action = None
+    self.old_state = None
+    self.step_count=0
 
 def game_events_occurred(self, old_game_state: dict, self_action: str, 
                         new_game_state: dict, events: List[str]):
@@ -93,9 +104,74 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     # Idea: Add your own events to hand out rewards. this is not correct
     if ... :
         pass
+    #print("___before adding custom events___")
+    #print(f"old position: {(old_game_state['self'][3][1],old_game_state['self'][3][0]) }")
+   
+    #print(f"self.close_to_crate: {self.close_to_crate}")
+    #print(f"self.prev_close_to_crate: {self.prev_close_to_crate}")
+    #print(f"self.close_to_safe_tile: {self.close_to_safe_tile}")
+    #print(f"self.prev_close_to_safe_tile: {self.prev_close_to_safe_tile}")
+    
+    ### adding custom events here
+    if self.close_to_crate < self.prev_close_to_crate:# reward if agent moves closer to the crate
+        if self.close_to_crate==0 and self.prev_close_to_crate ==100:
+            ### takes care of the case when no crate in the sight OR after the bombing, before the bomb eplodes
+            # #print("takes care of the case when no crate in the sight OR   after the bombing but before explosion")
+            self.close_to_crate = 100
+        else:
+            events.append(CLOSE_T0_CRATE)
+            # #print("we got close to crate")
+            self.prev_close_to_crate = self.close_to_crate
+    elif self.close_to_crate > self.prev_close_to_crate:# penalise if agent moves away from closest crate
+        events.append(AWAY_FROM_CRATE)
+        #print("went far from crate")
+        self.prev_close_to_crate = self.close_to_crate
+    
+    if self.prev_close_to_crate == 0 and self_action == 'BOMB':# big reward if bomb is dropped close to the crate
+       ### give a bog reward if the bomb is places near the crate
+        #print("dropped bomb near the crate")
+        events.append(BOMB_NEAR_CRATE)
+        # reset
+        self.prev_close_to_crate=100### i think we should reset this to 0
+        self.close_to_crate= 100
+    elif self.prev_close_to_crate!=0 and self_action == 'BOMB':###else penalise if bomb dropped far away
+        #print("dropped bomb far away from the crate")
+        events.append(BOMB_FAR_FROM_CRATE)
+        # reset again
+        self.prev_close_to_crate=100# I think this should be reset to 0
+        self.close_to_crate=100
+        
+    # if self.close_to_safe_tile < self.prev_close_to_safe_tile:# reward if agent moves close to  safe tile
+    #     #print("getting close to the safe tile")
+    #     events.append(CLOSE_TO_SAFE_TILE)
+    #     self.prev_close_to_safe_tile = self.close_to_safe_tile
+    # elif self.close_to_safe_tile > self.prev_close_to_safe_tile:### penalise if agent moves away from safe tile
+    #     if self.prev_close_to_safe_tile==0 and self.close_to_safe_tile > 0 and self.prev_action=='BOMB':
+    #         #THIS TAKES CARE OF SITUATION JUST AFTER THE BOMB
+    #         #print("still would be considered close to safe tile as previous action was bombings")
+    #         # events.append(CLOSE_TO_SAFE_TILE)
+    #         pass
+    #     else:
+    #         events.append(AWAY_FROM_SAFE_TILE)
+    #         #print("away from the safe tile")
+    #     self.prev_close_to_safe_tile = self.close_to_safe_tile
+    # elif self.close_to_safe_tile == 0:#### this is causing issue.
+    #     self.prev_close_to_crate, self.close_to_crate=100, 100
+        
+    #print("___After  adding custom events___")
+    #print(f"self.close_to_crate: {self.close_to_crate}")
+    #print(f"self.prev_close_to_crate: {self.prev_close_to_crate}")
+    #print(f"self.close_to_safe_tile: {self.close_to_safe_tile}")
+    #print(f"self.prev_close_to_safe_tile: {self.prev_close_to_safe_tile}")
+    #print(f"action chosen and the new state then would be:")
+    #print(f"action is: {self_action}")
+    #print(f"current position: {(new_game_state['self'][3][1],new_game_state['self'][3][0]) }")
+    #print("_*_*_*_*_*_*")
+        
 
     #calculate reward from events
     reward = reward_from_events(self,events)
+    self.prev_action=self_action
     # states_to_features is defined in states_to_features.py
     transition_info = Transition(state_to_features_encoder(self,old_game_state), ACTIONS_DICT[self_action], 
                                 state_to_features_encoder(self,new_game_state), reward)
@@ -123,6 +199,45 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     :param self: The same object that is passed to all of your callbacks.
     """
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
+    
+    ### adding custom events here
+    
+    # if self.close_to_crate < self.prev_close_to_crate:# reward if agent moves closer to the crate
+    #     if self.close_to_crate == 0 and self.prev_close_to_crate ==100:
+    #         ### takes care of the case when no crate in the sight OR after the bombing, before the bomb explodes
+           
+    #         self.close_to_crate = 100
+    #     else:
+    #         events.append(CLOSE_T0_CRATE)
+    #         self.prev_close_to_crate = self.close_to_crate
+    # elif self.close_to_crate > self.prev_close_to_crate:# penalise if agent moves away from closest crate
+    #     events.append(AWAY_FROM_CRATE)
+    #     self.prev_close_to_crate = self.close_to_crate
+    
+    # if self.prev_close_to_crate == 0 and last_action == 'BOMB':# big reward if bomb is dropped close to the crate
+    #    ### give a bog reward if the bomb is places near the crate
+    #     events.append(BOMB_NEAR_CRATE)
+    #     # reset
+    #     self.prev_close_to_crate=100### i think we should reset this to 0
+    #     self.close_to_crate= 100
+    # elif self.prev_close_to_crate!=0 and last_action == 'BOMB':###else penalise if bomb dropped far away
+    #     events.append(BOMB_FAR_FROM_CRATE)
+    #     # reset again
+    #     self.prev_close_to_crate=100# I think this should be reset to 0
+    #     self.close_to_crate=100
+        
+    # if self.close_to_safe_tile < self.prev_close_to_safe_tile:# reward if agent moves close to  safe tile
+    #     events.append(CLOSE_TO_SAFE_TILE)
+    #     self.prev_close_to_safe_tile = self.close_to_safe_tile
+    # elif self.close_to_safe_tile > self.prev_close_to_safe_tile:### penalise if agent moves away from safe tile
+    #     if self.prev_close_to_safe_tile==0 and self.close_to_safe_tile > 0 and self.prev_action=='BOMB':
+    #         #THIS TAKES CARE OF SITUATION JUST AFTER THE BOMB
+    #         # events.append(CLOSE_TO_SAFE_TILE)
+    #         pass
+    #     else:
+    #         events.append(AWAY_FROM_SAFE_TILE)
+    #     self.prev_close_to_safe_tile = self.close_to_safe_tile
+        
     reward = reward_from_events(self, events)
     transition_info = Transition(state_to_features_encoder(self,last_game_state), ACTIONS_DICT[last_action], None, reward)
     # storing the data in deque and list
@@ -137,8 +252,12 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
     # Store the model
     with open(AGENT_SAVED, "wb") as file:
         torch.save(self.model.state_dict(), AGENT_SAVED) ### i need to save the model for future
-        #print(f"\nmodel will be saved here after this round")
-
+        ##print(f"\nmodel will be saved here after this round")
+    
+    ### reset the values for the new round
+    self.close_to_crate, self.prev_close_to_crate=100,100# initialise to very high value
+    self.close_to_safe_tile, self.prev_close_to_safe_tile = 0,0### initialise to 0
+    self.step_count=0
 
 def reward_from_events(self, events: List[str]) -> int:
     """
@@ -161,18 +280,27 @@ def reward_from_events(self, events: List[str]) -> int:
         such as : collecting coins, breaking crates, killing the opponent.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 100,
+        e.COIN_COLLECTED: 1000,# earlier it was 100
         e.KILLED_OPPONENT: 400,
         e.MOVED_RIGHT: -1,
         e.MOVED_LEFT: -1,
         e.MOVED_UP: -1,
         e.MOVED_DOWN: -1,
-        e.WAITED: -1, ### up until now I was using -2
-        e.BOMB_DROPPED: -5,
-        e.INVALID_ACTION: -10,
-        e.KILLED_SELF: -200,
+        e.WAITED: -200, ### up until now I was using -2
+        e.BOMB_DROPPED:500,#1#-1,# -5 # 50
+        e.INVALID_ACTION: -1000,#-100,# earlier it was -10 
+        e.KILLED_SELF: -800,# earlier it was -800
         e.GOT_KILLED: -1000,
-        e.CRATE_DESTROYED: 30
+        e.CRATE_DESTROYED: 100,# earlier it was 30
+        ### we need to add some more custom rewards here. else it won't work
+        CLOSE_T0_CRATE : 15,
+        CLOSE_TO_SAFE_TILE : 15,
+        BOMB_NEAR_CRATE : 500,
+        BOMB_FAR_FROM_CRATE: -800,
+        AWAY_FROM_CRATE: -15,# it was -20
+        AWAY_FROM_SAFE_TILE: -20,
+        AGENT_LOOP: -5
+        
     } 
     reward_sum = 0
     for event in events:
@@ -188,3 +316,48 @@ def reward_from_events(self, events: List[str]) -> int:
 # Kill a player
 # Die 1. killed by its own bomb and 2. killed by other players
 # Break a crate
+
+
+'''e.COIN_COLLECTED: 200,# earlier it was 100
+        e.KILLED_OPPONENT: 400,
+        e.MOVED_RIGHT: -1,
+        e.MOVED_LEFT: -1,
+        e.MOVED_UP: -1,
+        e.MOVED_DOWN: -1,
+        e.WAITED: -50, ### up until now I was using -2
+        e.BOMB_DROPPED: 50,#-1,# -5 # 50
+        e.INVALID_ACTION: -1000,#-100,# earlier it was -10 
+        e.KILLED_SELF: -500,
+        e.GOT_KILLED: -1000,
+        e.CRATE_DESTROYED: 100,# earlier it was 30
+        ### we need to add some more custom rewards here. else it won't work
+        CLOSE_T0_CRATE : 10,
+        CLOSE_TO_SAFE_TILE : 10,
+        BOMB_NEAR_CRATE : 50,
+        AWAY_FROM_CRATE: -15,
+        AWAY_FROM_SAFE_TILE: -15'''
+        
+#### this reward seems to be working, although it sometimes get's stuck in a loop
+'''
+game_rewards = {
+        e.COIN_COLLECTED: 200,# earlier it was 100
+        e.KILLED_OPPONENT: 400,
+        e.MOVED_RIGHT: -1,
+        e.MOVED_LEFT: -1,
+        e.MOVED_UP: -1,
+        e.MOVED_DOWN: -1,
+        e.WAITED: -20, ### up until now I was using -2
+        e.BOMB_DROPPED:-20,#1#-1,# -5 # 50
+        e.INVALID_ACTION: -1000,#-100,# earlier it was -10 
+        e.KILLED_SELF: -800,# earlier it was -800
+        e.GOT_KILLED: -1000,
+        e.CRATE_DESTROYED: 100,# earlier it was 30
+        ### we need to add some more custom rewards here. else it won't work
+        CLOSE_T0_CRATE : 15,
+        CLOSE_TO_SAFE_TILE : 15,
+        BOMB_NEAR_CRATE : 75,
+        BOMB_FAR_FROM_CRATE: -80,
+        AWAY_FROM_CRATE: -50,# it was -20
+        AWAY_FROM_SAFE_TILE: -50 ### udate in the train: it worked well with bomb=1 again!
+        
+    } '''
