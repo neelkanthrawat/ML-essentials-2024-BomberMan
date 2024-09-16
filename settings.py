@@ -5,8 +5,8 @@ from fallbacks import pygame
 
 # Game properties
 # board size (a smaller board may be useful at the beginning)
-COLS = 9#177
-ROWS = 9#17
+COLS = 9
+ROWS = 9
 SCENARIOS = {
     # modes useful for agent development
 	"empty": {
@@ -15,15 +15,15 @@ SCENARIOS = {
     },
     "coin-heaven": {
         "CRATE_DENSITY": 0,
-        "COIN_COUNT": 5#50
+        "COIN_COUNT":15 #6#11[64]# 12 #trained on 7x7. with 150 game steps
     },
     "loot-crate": { 
-        "CRATE_DENSITY": 0.15,#0.75, 
-        "COIN_COUNT":5 #30 
+        "CRATE_DENSITY":0.45,#0.35,#0.15,#0.08,# 0.75, 
+        "COIN_COUNT": 15#14#20 # earlier it was 12
     }, 
-    # this is the tournament game mode
+    # this is the tournaments game mode
     "classic": {
-        "CRATE_DENSITY": 0.75,
+        "CRATE_DENSITY": 0.45,#0.75,
         "COIN_COUNT": 9
     }
     # Feel free to add more game modes and properties
@@ -32,7 +32,7 @@ SCENARIOS = {
 MAX_AGENTS = 4
 
 # Round properties
-MAX_STEPS = 50
+MAX_STEPS = 400### note: choose large number of steps for training. I chose 150 and then it worked well
 
 # GUI properties
 GRID_SIZE = 30
