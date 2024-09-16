@@ -38,7 +38,8 @@ class DQNMLP(nn.Module):
 
     def forward(self, x):
         for layer in self.hidden_layers:
-            x = F.relu(layer(x))
+             x = F.relu(layer(x))
+            # x = F.leaky_relu(layer(x))### Let's use leaky relu: its very bad
         x = self.output_layer(x)
         return x
 
@@ -81,12 +82,18 @@ def train_dqn(self):
     # Define the target and online networks
     target_network = self.model.to(device)### theta minus used for calculating the target Q values
     online_network = self.online_model.to(device)### theta in minh et al ### trained every game step
-
+    ###
+    # Set the networks to training/evaluation mode (I forgot to do this earlier)
+    online_network.train()  # Set online network to training mode
+    target_network.eval()  # Set target network to evaluation mode
+    
+    
     batch_size = min(len(replay_buffer), self.batch_size)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(online_network.parameters(), lr=learning_rate)
 
     # Sample a mini-batch from the replay buffer
+    # indeces = random.sample(range(len(replay_buffer, batch_size)))
     minibatch = random.sample(replay_buffer, batch_size)
 
     # Separate the minibatch into states, actions, rewards, and next states
@@ -107,12 +114,20 @@ def train_dqn(self):
     # Compute target Q values
     target_q_values = reward_batch.clone()
     with torch.no_grad():
+        # commenting DQN. 
         next_q_values = torch.zeros(batch_size, device=device)
         if len(non_final_next_states) > 0:
             next_q_values[non_final_mask] = target_network(non_final_next_states).max(1)[0]
         #print(f"next_q_values.shape: {next_q_values.shape}")
 
         target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+        ### working with DDQN
+        # next_actions = online_network(non_final_next_states).max(1)[1]  # Select actions using online network
+        # next_q_values = torch.zeros(batch_size, device=device)
+        # if len(non_final_next_states) > 0:
+        #     next_q_values[non_final_mask] = target_network(non_final_next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
+        # target_q_values[non_final_mask] += gamma * next_q_values[non_final_mask]
+
 
     # Compute loss
     loss = criterion(q_values, target_q_values)
@@ -129,4 +144,5 @@ def update_target_network(self):
     :param self: This object is passed to all callbacks and you can set arbitrary values.
     '''
     self.model = copy.deepcopy(self.online_model)
+    self.model.eval()
 
