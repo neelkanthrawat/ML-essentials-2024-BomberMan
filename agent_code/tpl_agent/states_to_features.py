@@ -25,7 +25,7 @@ def get_subblock_with_padding(tensor, r, c, block_size=3, padding_value_list=Non
 
     Returns:
     torch.Tensor: The sub-block centered at (r, c) with shape (num_channels, block_size, block_size),
-                  padded with the corresponding values from padding_value_list if necessary.
+                padded with the corresponding values from padding_value_list if necessary.
     """
     if block_size % 2 == 0:
         raise ValueError("block_size must be an odd number to have a center.")
@@ -66,7 +66,8 @@ def create_combined_mask(field: torch.Tensor, explosion_map: torch.Tensor) -> to
     :param field: A tensor representing the field layout (e.g., walls and crates).
                     -1: Stone wall (indestructible)
                     0: Free space
-                    1: Crate (destructible)
+                    -2: Crate (destructible)
+                    5: no bomb countdown
         :param explosion_map: A tensor representing the current explosion danger zones.
                             0: No explosion
                             >0: Explosions or danger (e.g., countdown timers)
@@ -78,15 +79,15 @@ def create_combined_mask(field: torch.Tensor, explosion_map: torch.Tensor) -> to
     """
     # Initialize the combined mask with the same shape as the field
     combined_mask = torch.ones_like(field, dtype=torch.float32)
-
+    
+    # Mark explosion danger zones (non-zero in the explosion map) as inaccessible
+    combined_mask[explosion_map != 5] = 0
+    
     # Mark stone walls (-1 in the field) as inaccessible in the combined mask
     combined_mask[field == -1] = -1
     
     # Mark crates (1 in the field) in the combined mask
     combined_mask[field == 1] = -2 # earlier crates were also -1.
-    
-    # Mark explosion danger zones (non-zero in the explosion map) as inaccessible
-    combined_mask[explosion_map != 5] = 0
     
     return combined_mask
 
@@ -183,7 +184,7 @@ def bfs_find_next_crate(mask, start=(2, 2)):
 
 
 
-def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.Tensor:
+def state_to_features(self,game_state: dict, return_2d_features=False, close_to_crate_check=True) -> torch.Tensor:
     """
     Converts the game state to a multi-channel feature tensor using PyTorch.
     
@@ -206,6 +207,11 @@ def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.
     field_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     field_layer[field == -1] = -1  # Stone walls
     field_layer[field == 1] = 1    # Crates
+    ### add opponents as crates
+    # Others layer
+    # others_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
+    for _, _, _, (x, y) in others:
+        field_layer[x, y] = 1 ### treating opponents as crates
     channels.append(field_layer)
 
     # Explosion map layer
@@ -215,10 +221,19 @@ def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.
             if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
                 bomb_map[i, j] = min(bomb_map[i, j], t)
     channels.append(bomb_map)
+    # print(f"bomb map is:")# before explosion
+    # print(bomb_map)
+    # print("explosion_map is:")### after explosion
+    # print(explosion_map)
+    # print(f"bomb_map+explosion_map:")
+    # print(bomb_map+explosion_map)
     # create the combined mask
-    comb_mask = create_combined_mask(field=field_layer, explosion_map=bomb_map)
+    comb_mask = create_combined_mask(field=field_layer, explosion_map=bomb_map+explosion_map)
+    
+    ### instead of having sepreate stone and crate and  bomb explosion layer, let's append using comb_mask
+    # channels.append(comb_mask)
     ### the combined mask would be the same for bfs free tile search and bfs crate search.
-
+    
     # Coins layer
     coins_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for coin in coins:
@@ -228,33 +243,55 @@ def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.
     bombs_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for (x, y), timer in bombs:
         bombs_layer[x, y] = timer
-    channels.append(bombs_layer)
+    channels.append(bombs_layer+explosion_map)
+    
+    ### explosion map
+    # explosion_map_layer=torch.from_numpy(explosion_map)
+    # channels.append(explosion_map_layer)
+    # print(f"bomb layer is: {bombs_layer}")
 
     # Self layer
     self_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     self_x, self_y = self_info[3]
     self_layer[self_x, self_y] = 1
-    channels.append(self_layer)
+    # channels.append(self_layer)
 
     # creating combined mask for bfs search
     ### create subblock for sending mask to bfs search
     subblock_comb_mask = get_subblock_with_padding(tensor = comb_mask.unsqueeze(0),r=self_x,c=self_y,
                                                 block_size=5,padding_value_list=[-1])
     subblock_comb_mask = subblock_comb_mask.squeeze(0)
-    # print("\n subblock comb mask:"); print(subblock_comb_mask.transpose(0,1))
+    # print(f"subblock combined mask before setting DZ to -1 is:")
+    # print(subblock_comb_mask.transpose(0,1))
+    ### TESTING STH: Avoid going into 0s(dangerous tiles) if agent was not already not in 1
+    center = (2, 2)# Coordinates of the agent (center of the tensor)
+    # Check if the agent is in a danger zone (0)
+    if subblock_comb_mask[center] != 0:
+        # If the agent is not in a danger zone, change all 0s to -1
+        subblock_comb_mask[subblock_comb_mask == 0] = -2### what if I change them to fictious crates
+        # print("outside the DZ, DZ tiles set to -1 (walls)")
+        # Print the updated tensor
+        # print(f" after shifiting DZs to walls")
+        # print(subblock_comb_mask.transpose(0,1))
+    
     # create the bfs layer now: 1. for nearest crate and the safe location
     bfs_layer_nearest_crate = bfs_find_next_crate(mask = subblock_comb_mask, start=(2,2))# locate the position to bomb
     bfs_layer_safe_location = bfs_find_free_tile(mask = subblock_comb_mask, start=(2,2))# locate the position of nearest safe tile
-    # print(f"bf layer nearest crate is:"); print(bfs_layer_nearest_crate.transpose(0,1))
-    self.close_to_crate = torch.max(bfs_layer_nearest_crate)
-    self.close_to_safe_tile = torch.max(bfs_layer_safe_location)
-    # print(f"bf layer nearest safe tile is:"); print(bfs_layer_safe_location.transpose(0,1))
-    bfs_layer = bfs_layer_nearest_crate + bfs_layer_nearest_crate
     
-    # Others layer
-    # others_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
-    # for _, _, _, (x, y) in others:
-    #     others_layer[x, y] = 1
+    if close_to_crate_check:
+        self.close_to_crate = torch.max(bfs_layer_nearest_crate)
+        # print(f"close to crate is: {self.close_to_crate}")
+    self.close_to_safe_tile = torch.max(bfs_layer_safe_location)
+    # print(f"bf layer nearest safe tile is:"); print(bfs_layer_safe_location)
+    # print("_"*10)
+    # print(f"subblock comb mask.T:"); print(subblock_comb_mask.transpose(0,1))
+    # print(f"bf layer nearest crate.T is:"); print(bfs_layer_nearest_crate.transpose(0,1))
+    # print(f"bf layer nearest safe tile.T is:"); print(bfs_layer_safe_location.transpose(0,1))
+    
+    bfs_layer = bfs_layer_nearest_crate + bfs_layer_safe_location#bfs_layer_nearest_crate
+    # print("combined_bfs_layer:"); print(bfs_layer)
+    # print("combined_bfs_layer.T:"); print(bfs_layer.transpose(0,1))
+   
     # channels.append(others_layer)
 
     # Stack all channels to form a multi-channel 2D array
@@ -265,11 +302,17 @@ def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.
     # field, explosion map, coins, 
     # bombs-position with countdown at that point,
     #self layer
-    padding_value_list=[-1,0,0,0,0]#[-1,-1,0,5,0]#,0] ### an update: for combined mask layer, I need to update
+    padding_value_list=[-1,0,0,0]#[-1,-1,0,5,0]#,0] ### an update: for combined mask layer, I need to update
     subblock_info = get_subblock_with_padding(tensor=stacked_channels,
                             r=self_x, c=self_y, block_size=5,
                             padding_value_list=padding_value_list
                             )
+    ### priting walls and crates layer
+    subblock_info[0,:,:][subblock_comb_mask==-2]=-2 ### change to crates instead of walls ### -1 ---> -2
+    # print(f"walls and crates layer")
+    # print(subblock_info[0,:,:].transpose(0,1))
+    # print(f" after shifiting DZs to walls")
+    # print(subblock_comb_mask.transpose(0,1))
     ## add bfs layer into sub-block layers
     subblock_info = torch.cat((subblock_info, bfs_layer.unsqueeze(0)), dim=0)
     # # nearest crate to place bomb at:
@@ -332,10 +375,11 @@ def state_to_features(self,game_state: dict, return_2d_features=False) -> torch.
 
 ### reduced state, loading the trained autoencoder
 # Define your Autoencoder class as before
-def state_to_features_encoder(self,game_state: dict):
+def state_to_features_encoder(self,game_state: dict, check_close_to_crate=True):
 
     naive_1d_state= state_to_features(self=self,game_state=game_state,
-                                    return_2d_features=self.conv_AE_encoded_features)
+                                    return_2d_features=self.conv_AE_encoded_features,
+                                    close_to_crate_check=check_close_to_crate)
     # print(f"naive_1d_state.shape: {naive_1d_state.shape}")
     # naive_1d_state = naive_1d_state.clone().detach().unsqueeze(0).float()
     if self.with_encoder:
