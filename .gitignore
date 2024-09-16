@@ -12,6 +12,16 @@ checking_code_callback_and_train.ipynb
 checking_collected_data.ipynb
 testing_AE.ipynb
 *.pkl
+###
+# complex_1.pt
+# complex_11.pt
+# complex_2.pt
+# complex_22.pt
+# complex_33.pt
+# complex_44.pt 
+# complex_55 
+my-saved-model-5x5-naive.pt 
+
 
 
 # C extensions
