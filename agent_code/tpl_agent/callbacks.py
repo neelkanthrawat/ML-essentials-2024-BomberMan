@@ -33,7 +33,7 @@ if WITH_CONV_AE:### shape of the reduced features: torch.Size([1, 20]):
     RETURN_2D_FEAT=True 
     WITH_ENCODER=True
 else: ### shape of the naive features: torch.Size([150])
-    AGENT_SAVED ='lc_9x9_64x64.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'
+    AGENT_SAVED ='No_loop_anymore_lc_9x9_64x64_2.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'
     RETURN_2D_FEAT=False
     WITH_ENCODER=False 
 
@@ -56,7 +56,7 @@ def setup(self):
     """
     print("First checking Callbacks: setup")
     print(f"----IMAGE SIZE IS: -----: {image_size}")
-    input_size = image_size*image_size* 5#6: when we were testing if the model escapes its own bomb  # Adjust this based on input size (example: 8x8 field with 6 channels)
+    input_size = image_size*image_size* 5  #6: when we were testing if the model escapes its own bomb  # Adjust this based on input size (example: 8x8 field with 6 channels)
     num_actions = len(ACTIONS)
     hidden_layers_sizes = [64,64]#[64,32,32,32,32,32,32,32]#[32,16,8]#[12,8]  # Example hidden layer sizes hidden layer (older):[64,16]
     ### add info for the autoencoder; we will use it for feature reduction and space representation
@@ -68,7 +68,7 @@ def setup(self):
     self.with_encoder = WITH_ENCODER
     self.drop_bomb =2
     self.bomb_flag=0
-    self.recent_states = deque(maxlen=5)### to avoid looping
+    self.recent_states = deque(maxlen=6)### to avoid looping
     # some varaible we need for aux
     self.close_to_crate, self.prev_close_to_crate=100,100# initialise to very high value
     self.close_to_safe_tile, self.prev_close_to_safe_tile = 0,0### initialise to 0
@@ -179,11 +179,14 @@ def act(self, game_state: dict) -> str:
         #         return 'BOMB'
         # else:
             # self.drop_bomb+=1
+        ### filling in the state  in recent state
+        # print("recent state is:",game_state['self'][3])
+        self.recent_states.append(game_state['self'][3])
         state = state_to_features_encoder(self, game_state)
         with torch.no_grad():
             q_values = self.model(state)
-        print(f"q values are: {q_values}")
-        print(f"actions list: {ACTIONS}")
+        # print(f"q values are: {q_values}")
+        # print(f"actions list: {ACTIONS}")
         if not PROB_ACTION_ON:
             ## deterministic policy
             action_index = torch.argmax(q_values).item()
@@ -219,19 +222,7 @@ def act(self, game_state: dict) -> str:
                 masked_prob = prob * mask
                 masked_prob /= masked_prob.sum()  # Normalize to ensure it sums to 1
                 action_index = torch.multinomial(masked_prob, 1)
-                # print("_"*10)
-                # print(f"c is: {c}")
-                # print(f"q values are: {q_values}")
-                # print(f"prob vector before masking is: {prob}")
-                # print(f"actions list: {ACTIONS}")
-                # print(f"q values (stochastic) are: {q_values}")
-                # print(f"prob vector after masking is: {masked_prob}")
                 # return ACTIONS[action_index]
             else:
                 action_index = torch.multinomial(prob, 1)
-            # print("____"*10)
-            # print(f"q values are: {q_values}")
-            # print(f"actions list: {ACTIONS}")
-            # print(f"action it took: {ACTIONS[action_index]}")
-            
             return ACTIONS[action_index]
