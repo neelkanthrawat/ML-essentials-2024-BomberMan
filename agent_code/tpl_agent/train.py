@@ -16,7 +16,7 @@ from .neural_agent import train_dqn, update_target_network
 
 # For training
 TRAIN_FROM_THE_SCRATCH= 1### for subsequent subtasks (2,3,4), we won't start training from the scratch. We will continue training our previously trained model
-AGENT_SAVED =   'lc_9x9_64x64.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'#'my-saved-model-7x7-local-state-info-3-trial.pt' #'my-saved-model-17x17-local-state-a-star-info.pt'#'my-saved-model-17x17-local-state-info.pt'
+AGENT_SAVED =   'No_loop_anymore_lc_9x9_64x64_2.pt'#'my-saved-model-7x7-local-state-info-rule-based-train-trial.pt'#'my-saved-model-7x7-local-state-info-3-trial.pt' #'my-saved-model-17x17-local-state-a-star-info.pt'#'my-saved-model-17x17-local-state-info.pt'
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 experience_buffer = []
@@ -33,7 +33,7 @@ BOMB_NEAR_CRATE = 'BOMB NEAR CRATE'
 BOMB_FAR_FROM_CRATE = 'BOMB_FAR_FROM_CRATE'
 BOMB_DROPPED_NAIVELY = 'BOMB_DROPPED_NAIVELY'
 AGENT_LOOP = 'AGENT_LOOP'
-
+STUPID_BOMB= 'STUPID_BOMBING'
 
 
 # Hyper parameters -- DO modify
@@ -72,9 +72,9 @@ def setup_training(self):
     self.batch_size= 500#64#20(it was 20 even for local state representation) #We have also defined the batch size here. Cool!
     #### i changed gamma to 0.5 and it stopped working. only o/p was waiting
     ### Initialize epsilon for the epsilon-greedy strategy
-    self.epsilon_start =1 # Initial epsilon
+    self.epsilon_start =1#1 # Initial epsilon
     self.epsilon_end = 0.1#0.05#0.1   # Final epsilon
-    self.epsilon_decay = 0.9999985#0.999999885#0.9999995  # Decay factor per step
+    self.epsilon_decay = 0.9999985#0.9999985#(13x13)#0.999985# (9x9)#0.9999985#0.999999885#0.9999995  # Decay factor per step
     self.epsilon = self.epsilon_start  # Start epsilon with the i,
     self.current_round = 0
     
@@ -84,8 +84,10 @@ def setup_training(self):
     self.prev_action = None
     self.old_state = None
     self.step_count=0
-    self.recent_states = deque(maxlen=20)
-    self.recent_actions = deque(maxlen=20)
+    self.recent_states = deque(maxlen=6)# earlier it was 20
+    self.recent_actions = deque(maxlen=6)
+    self.no_crate_nearby=0
+    self.no_coin_nearby=0
     ### some flags
     self.bomb_flag=0
     self.close_to_crate_flag=0
@@ -145,6 +147,11 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     if self.bomb_flag:
         self.close_to_crate=100
         self.prev_close_to_crate=100
+    
+    ### if no crate nearby but still bombing instead of navigating further
+    # if self.no_crate_nearby and self_action == 'BOMB':
+    #     events.append(STUPID_BOMB)
+    #     self.no_crate_nearby=0
 
     ## to endure agent comes close to the crate
     if self.close_to_crate < self.prev_close_to_crate:# reward if agent moves closer to the crate
@@ -167,13 +174,13 @@ def game_events_occurred(self, old_game_state: dict, self_action: str,
     # print(f"self.prev_close_to_crate: {self.prev_close_to_crate}")
     
     
-    # (x, y) = new_game_state['self'][3]
-    # if self.recent_states.count((x,y)) > 4:
+    (x, y) = new_game_state['self'][3]
+    # if self.recent_states.count((x,y)) > 2:
     #     events.append(AGENT_LOOP)
     #     # print(f"loops are present as self.recent_states.count((x,y)) is {self.recent_states.count((x,y))}")
     #     # print(f"for current round number: {self.current_round} and step: {self.step_count}")
     #     # print(f" it loops")
-    # self.recent_states.append((x,y))
+    self.recent_states.append((x,y))
     
     
         
@@ -260,30 +267,31 @@ def reward_from_events(self, events: List[str]) -> int:
         such as : collecting coins, breaking crates, killing the opponent.
     """
     game_rewards = {
-        e.COIN_COLLECTED: 4500,# earlier it was 100
+        e.COIN_COLLECTED: 10000,# earlier it was 100
         e.KILLED_OPPONENT: 400,
-        e.MOVED_RIGHT:100,
-        e.MOVED_LEFT: 100,
-        e.MOVED_UP:100,
-        e.MOVED_DOWN: 100,
+        e.MOVED_RIGHT:200,
+        e.MOVED_LEFT: 200,
+        e.MOVED_UP: 200,
+        e.MOVED_DOWN: 200, 
         
         e.WAITED: -300,#-300, ### up until now I was using -2
-        e.BOMB_DROPPED:2000,#1#-1,# -5 # 50
+        e.BOMB_DROPPED:2900,#2900,#1#-1,# -5 # 50# initally it was 3500
         e.INVALID_ACTION: -4000,#-100,# earlier it was -10 
         e.KILLED_SELF: -5000,# earlier it was -800
-        e.GOT_KILLED: -1000,
-        e.CRATE_DESTROYED: 200,# earlier it was 30
+        e.GOT_KILLED: -3000,
+        e.CRATE_DESTROYED: 800,# earlier it was 30
         ### we need to add some more custom rewards here. else it won't work
         CLOSE_T0_CRATE : 150,
         CLOSE_TO_SAFE_TILE : 150,# not using this
         BOMB_NEAR_CRATE : 4000,#3500,
         BOMB_FAR_FROM_CRATE: -3200,#-1000,#-1000,
-        BOMB_DROPPED_NAIVELY: -3000,
+        BOMB_DROPPED_NAIVELY: -4200,#-3000,
         AWAY_FROM_CRATE: -3050,# it was -20
-        AWAY_FROM_SAFE_TILE: -200,
-        AGENT_LOOP: -5000
-        
+        AWAY_FROM_SAFE_TILE: -2000,### not using this as well
+        STUPID_BOMB: -800,
+        AGENT_LOOP: -5000# NOT USING IT
     } 
+    
     reward_sum = 0
     for event in events:
         if event in game_rewards:
