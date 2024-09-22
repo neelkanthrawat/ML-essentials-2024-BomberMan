@@ -7,6 +7,9 @@ import torch.nn as nn
 # 1. naive full game information
 # 2. reduced state representation using AE (encoder to be precise)
 
+BLOCK_SIZE=5
+CENTER_POS=(2,2)
+
 ###
 AE_PRETRAINED_FILE='D:\\Desktop\\master_scientific_computing\\second_semester\\ml essentials\\Final Project\\ML-essentials-2024-BomberMan\\ae_model_weights_5x5.pth'
 
@@ -25,7 +28,7 @@ def get_subblock_with_padding(tensor, r, c, block_size=3, padding_value_list=Non
 
     Returns:
     torch.Tensor: The sub-block centered at (r, c) with shape (num_channels, block_size, block_size),
-                padded with the corresponding values from padding_value_list if necessary.
+                  padded with the corresponding values from padding_value_list if necessary.
     """
     if block_size % 2 == 0:
         raise ValueError("block_size must be an odd number to have a center.")
@@ -221,35 +224,30 @@ def state_to_features(self,game_state: dict, return_2d_features=False, close_to_
             if (0 < i < bomb_map.shape[0]) and (0 < j < bomb_map.shape[1]):
                 bomb_map[i, j] = min(bomb_map[i, j], t)
     channels.append(bomb_map)
-    # print(f"bomb map is:")# before explosion
-    # print(bomb_map)
-    # print("explosion_map is:")### after explosion
-    # print(explosion_map)
-    # print(f"bomb_map+explosion_map:")
-    # print(bomb_map+explosion_map)
     # create the combined mask
     comb_mask = create_combined_mask(field=field_layer, explosion_map=bomb_map+explosion_map)
-    
-    ### instead of having sepreate stone and crate and  bomb explosion layer, let's append using comb_mask
-    # channels.append(comb_mask)
-    ### the combined mask would be the same for bfs free tile search and bfs crate search.
     
     # Coins layer
     coins_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for coin in coins:
         coins_layer[coin] = 1
+    
+    ###
+    # if not self.train:
+    #     if self.recent_states.count(self_info[3]) > 2:
+    #         # print(coins_layer)
+    #         coins_layer=torch.bernoulli(torch.full((field.shape), 0.75)) #torch.ones_like(torch.tensor(field), dtype=torch.float32)
+    #         # print("coins_layer for looping case")
+    #         # print(coins_layer)
     channels.append(coins_layer)
     # Bombs layer
     bombs_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     for (x, y), timer in bombs:
         bombs_layer[x, y] = timer
     channels.append(bombs_layer+explosion_map)
+    # print("explosion_map_is:");print(explosion_map)
+    # print('bomb_layer is'); print(bombs_layer)
     
-    ### explosion map
-    # explosion_map_layer=torch.from_numpy(explosion_map)
-    # channels.append(explosion_map_layer)
-    # print(f"bomb layer is: {bombs_layer}")
-
     # Self layer
     self_layer = torch.zeros_like(torch.tensor(field), dtype=torch.float32)
     self_x, self_y = self_info[3]
@@ -259,119 +257,135 @@ def state_to_features(self,game_state: dict, return_2d_features=False, close_to_
     # creating combined mask for bfs search
     ### create subblock for sending mask to bfs search
     subblock_comb_mask = get_subblock_with_padding(tensor = comb_mask.unsqueeze(0),r=self_x,c=self_y,
-                                                block_size=5,padding_value_list=[-1])
+                                                block_size=BLOCK_SIZE,padding_value_list=[-1])
     subblock_comb_mask = subblock_comb_mask.squeeze(0)
-    # print(f"subblock combined mask before setting DZ to -1 is:")
-    # print(subblock_comb_mask.transpose(0,1))
     ### TESTING STH: Avoid going into 0s(dangerous tiles) if agent was not already not in 1
-    center = (2, 2)# Coordinates of the agent (center of the tensor)
+    center = CENTER_POS# Coordinates of the agent (center of the tensor)
     # Check if the agent is in a danger zone (0)
     if subblock_comb_mask[center] != 0:
         # If the agent is not in a danger zone, change all 0s to -1
         subblock_comb_mask[subblock_comb_mask == 0] = -2### what if I change them to fictious crates
-        # print("outside the DZ, DZ tiles set to -1 (walls)")
-        # Print the updated tensor
-        # print(f" after shifiting DZs to walls")
-        # print(subblock_comb_mask.transpose(0,1))
     
     # create the bfs layer now: 1. for nearest crate and the safe location
-    bfs_layer_nearest_crate = bfs_find_next_crate(mask = subblock_comb_mask, start=(2,2))# locate the position to bomb
-    bfs_layer_safe_location = bfs_find_free_tile(mask = subblock_comb_mask, start=(2,2))# locate the position of nearest safe tile
-    
+    bfs_layer_nearest_crate = bfs_find_next_crate(mask = subblock_comb_mask, start=CENTER_POS)# locate the position to bomb
+    bfs_layer_safe_location = bfs_find_free_tile(mask = subblock_comb_mask, start=CENTER_POS)# locate the position of nearest safe tile
     if close_to_crate_check:
         self.close_to_crate = torch.max(bfs_layer_nearest_crate)
-        # print(f"close to crate is: {self.close_to_crate}")
     self.close_to_safe_tile = torch.max(bfs_layer_safe_location)
-    # print(f"bf layer nearest safe tile is:"); print(bfs_layer_safe_location)
-    # print("_"*10)
-    # print(f"subblock comb mask.T:"); print(subblock_comb_mask.transpose(0,1))
-    # print(f"bf layer nearest crate.T is:"); print(bfs_layer_nearest_crate.transpose(0,1))
-    # print(f"bf layer nearest safe tile.T is:"); print(bfs_layer_safe_location.transpose(0,1))
     
-    bfs_layer = bfs_layer_nearest_crate + bfs_layer_safe_location#bfs_layer_nearest_crate
-    # print("combined_bfs_layer:"); print(bfs_layer)
-    # print("combined_bfs_layer.T:"); print(bfs_layer.transpose(0,1))
-   
-    # channels.append(others_layer)
+    # bfs_layer = bfs_layer_nearest_crate + bfs_layer_safe_location#bfs_layer_nearest_crate
+    ### finding nearest crate/coin if none is present within the vicinity:
+    # create a combined mask for crates and coins
+    mask_crate_and_coin = torch.ones_like(torch.tensor(field), dtype=torch.float32)
+    mask_crate_and_coin[field == 1]=-2
+    mask_crate_and_coin[field == -1]=-1
+    mask_crate_and_coin[coins_layer==1]=-2
+    recentered_mask_crate_and_coin = get_subblock_with_padding(tensor=mask_crate_and_coin.unsqueeze(0),
+                            r=self_x, c=self_y, block_size=field_layer.shape[0]*2 + 1,
+                            padding_value_list=[-1]
+                            )
+    recentered_mask_crate_and_coin = recentered_mask_crate_and_coin.squeeze(0)
+    # print("recentered_mask:"); print(recentered_mask_crate_and_coin.transpose(0,1))
+    ## use bfs search to find the nearest crate/coin outside the range of visibility
+    c = int((field_layer.shape[0]*2+1)/2)
+    # print("c is:",c)
+    bfs_crate_and_coin = bfs_find_next_crate(mask = recentered_mask_crate_and_coin, 
+                                            start=(c,c))
+    # print("haha"); print(bfs_crate_and_coin.transpose(0,1))
+    # print("c is:",c)
+    bfs_crate_and_coin_sliced = bfs_crate_and_coin[c-2:c+3, c-2:c+3]
+    # bfs_crate_and_coin_sliced[ bfs_crate_and_coin_sliced!=0] -=  1
+    # print("bfs_crate_and_coin_sclied:"); print(bfs_crate_and_coin_sliced.transpose(0,1))
+    # #bfs_layer_nearest_crate
+    bfs_layer= torch.zeros_like(bfs_crate_and_coin_sliced)
+    bfs_layer[bfs_crate_and_coin_sliced!=0]=1 # + bfs_layer_safe_location
+    bfs_layer = bfs_layer + bfs_layer_safe_location### newly added. this is getting saved. changed. now this is not being used anywhere
+    bfs_layer_2 = bfs_layer_nearest_crate + bfs_layer_safe_location# it seems im not using it anywhere.now this is getting saved
+    # let's try third thing
+    # we will send bfs_layer instead of bfs_layer_2 in the features: THIS IS WORKING REAL WELL
+    # channels.append(others_layer)'
+    
+    
 
     # Stack all channels to form a multi-channel 2D array
     stacked_channels = torch.stack(channels)
 
     # padding values for the case when agent is at the corner
     ### I am not quite sure about padding of 5 we used earlier.
-    # field, explosion map, coins, 
+    # field, bomb+explosion map, coins, 
     # bombs-position with countdown at that point,
     #self layer
     padding_value_list=[-1,0,0,0]#[-1,-1,0,5,0]#,0] ### an update: for combined mask layer, I need to update
     subblock_info = get_subblock_with_padding(tensor=stacked_channels,
-                            r=self_x, c=self_y, block_size=5,
+                            r=self_x, c=self_y, block_size=BLOCK_SIZE,
                             padding_value_list=padding_value_list
                             )
-    ### priting walls and crates layer
-    subblock_info[0,:,:][subblock_comb_mask==-2]=-2 ### change to crates instead of walls ### -1 ---> -2
-    # print(f"walls and crates layer")
-    # print(subblock_info[0,:,:].transpose(0,1))
-    # print(f" after shifiting DZs to walls")
-    # print(subblock_comb_mask.transpose(0,1))
-    ## add bfs layer into sub-block layers
+    
+    ## testing nearest coins and crate
+    if self.train:
+        if torch.max(bfs_layer_nearest_crate)==0 and torch.sum(subblock_info[0,:,:]==-2)==0:
+            self.no_crate_nearby = 1
+            
+        if  torch.sum(subblock_info[2,:,:])==0:
+            self.no_coin_nearby = 1
+
+    
+    # print("bfs_crate_and_coin_sliced:"); print(bfs_crate_and_coin_sliced.transpose(0,1))
+    ### envoke the conditions
+            
+    
+    #### trick to avoid getting destroyed by its own bomb:
+    ## to avoid going back to danger zone created by its own bomb
+    subblock_info[0,:,:][subblock_comb_mask==-2]=-2 ### change to fictitous crates instead of walls ### -1 ---> -2
+    ## to escape the danger zone
+    # print("*"*20)
+    # print("bfs_layer_safe_location is:"); print(bfs_layer_safe_location.transpose(0,1))
+    # print("is safe location layer active:"); print(torch.sum(bfs_layer_safe_location)!=0)
+    # print("neaset crate layer:"); print( bfs_layer_nearest_crate.transpose(0,1))
+    # print("*"*20)
+    # print("bomb layer + explosion map ",bomb_map+explosion_map)
+    # print("bomb_layer+explosion_map:"); print(subblock_info[3,:,:])
+    if not  self.train:
+        
+        #removed this from below:"torch.sum(subblock_info[2,:,:])==0 and"
+        if  torch.min(bomb_map+explosion_map)==torch.max(bomb_map+explosion_map): # no coins nearby and no emergency: to further facilitate brining close to crate
+            # print("newly added condn to bring close to crate")
+            # print("path is:",bfs_crate_and_coin_sliced.transpose(0,1))
+            subblock_info[2,:,:][bfs_crate_and_coin_sliced!=0]=1
+            # if self.recent_states.count(self_info[3]) > 3:
+            #     # print(coins_layer)
+            #     subblock_info[2,:,:]=torch.bernoulli(torch.full((subblock_info[2,:,:].shape), 0.75)) #torch.ones_like(torch.tensor(field), dtype=torch.float32)
+            #     print("coins_layer for looping case")
+                # print(coins_layer)
+            # print("newly added condn is doing sth:"); print(subblock_info[2,:,:].transpose(0,1))
+        #if there are no crate and coins  nearby
+        if torch.all(bfs_layer_nearest_crate ==0) and int(torch.sum(subblock_info[0,:,:]==-2)==0) and torch.sum(subblock_info[2,:,:])==0 : #if there are no crate and coins  nearby
+            # print("*"*20)
+            # print("sum test:"); print(torch.sum(subblock_info[0,:,:]==-2))
+            # print("no crate and coin in the vicinity")
+            subblock_info[2,:,:][bfs_crate_and_coin_sliced!=0]=1
+            # print("changed coin layer when nth nearby:"); print(subblock_info[2,:,:].transpose(0,1))
+        if torch.sum(bfs_layer_safe_location)!=0 and torch.min(bomb_map+explosion_map)!=torch.max(bomb_map+explosion_map):# i.e. if there is no real coin in the vicinity (crates could be present)
+            # print("Immediate priority safe location")
+            subblock_info[2,:,:] = torch.zeros_like(subblock_info[2,:,:])
+            subblock_info[2,:,:][bfs_layer_safe_location!=0] = 1 #this will also take care of safe tile case
+            # print("coin layer becomes (safety priority):"); print(subblock_info[2,:,:].transpose(0,1))
+
+    # print("coin layer:"); print(subblock_info[2,:,:].transpose(0,1))
+    
+    #add bfs layer into sub-block layers
+    # tryinh third thing (saving bfs_layer instead of bfs_layer_2, now it wont be used anywhere, only bfs_layer is being used)
     subblock_info = torch.cat((subblock_info, bfs_layer.unsqueeze(0)), dim=0)
-    # # nearest crate to place bomb at:
-    # subblock_info = torch.cat((subblock_info, bfs_layer_nearest_crate.unsqueeze(0)), dim=0)
-    # # nearest safe tile
-    # subblock_info = torch.cat((subblock_info, bfs_layer_safe_location.unsqueeze(0)), dim=0)
-    # print("_"*10)
-    # print("let's check new sub-block info is:")
-    # print(subblock_info)
+    
+    
+    ### add whole coin and crates info
     if return_2d_features: # if we want to work with image shaped network
         # return stacked_channels
         return subblock_info.float()
+    subblock_info = subblock_info.view(-1).float()
+    # is agent close to crate
     
-    # return stacked_channels.view(-1)
-    return subblock_info.view(-1).float()
-
-
-# def bfs_find_free_tile(mask, start=(2, 2)):
-#     # Directions for moving in the grid (up, down, left, right)
-#     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-    
-#     # Initialize the queue with the starting position
-#     queue = deque([start])
-
-
-#     # Initialize a set for visited positions
-#     visited = set()
-#     visited.add(start)
-#     # so we can do backtracking to find the path
-#     parents = {}
-    
-#     while queue:
-#         current_pos = queue.popleft()
-#         x, y = current_pos
-        
-#         # Check if the current tile is free
-#         if mask[x, y].item() == 1:
-#             output = torch.zeros_like(mask, dtype=torch.float32)
-#             # Mark the first free tile 
-#             output[(x, y)] = 1
-#             # Backtrack from the free tile to the start using the parents dictionary
-#             while current_pos in parents:
-#                 output[current_pos] = 1
-#                 current_pos = parents[current_pos]
-#             return output
-        
-#         # Explore neighboring positions
-#         for direction in directions:
-#             new_x, new_y = x + direction[0], y + direction[1]
-            
-#             # Check if the new position is not visited
-#             if (new_x, new_y) not in visited:
-#                 if mask[new_x, new_y].item() != -1:  # Only enqueue if it's not a wall/crate (-1)
-#                     queue.append((new_x, new_y))
-#                     visited.add((new_x, new_y))
-#                     parents[(new_x, new_y)] = (x, y)  # Record the parent
-    
-#     # If no free tile is found, return None or handle it appropriately
-#     return torch.zeros_like(mask, dtype=torch.float32)
+    return subblock_info
 
 ### reduced state, loading the trained autoencoder
 # Define your Autoencoder class as before
@@ -380,7 +394,6 @@ def state_to_features_encoder(self,game_state: dict, check_close_to_crate=True):
     naive_1d_state= state_to_features(self=self,game_state=game_state,
                                     return_2d_features=self.conv_AE_encoded_features,
                                     close_to_crate_check=check_close_to_crate)
-    # print(f"naive_1d_state.shape: {naive_1d_state.shape}")
     # naive_1d_state = naive_1d_state.clone().detach().unsqueeze(0).float()
     if self.with_encoder:
         with torch.no_grad():
@@ -390,10 +403,9 @@ def state_to_features_encoder(self,game_state: dict, check_close_to_crate=True):
                 reduced_feature = self.ae.encoder(naive_1d_state)
             ### NOTE again: I can also include case where we use MLP based encoder. But
             ### since we are not using such an AE, we leave it here for the time being
-        # print(f"shape of the reduced features: {reduced_feature.shape}")
+        
         return reduced_feature.squeeze(0) # update shape is fixed. ### shape is: torch.Size([1, coding_space_dimn])### an extra 1
     else:
-        # print(f"shape of the naive features: {naive_1d_state.clone().detach().shape}")
         return naive_1d_state.clone().detach()### shape is: torch.Size([naive_feature_dimension])
 
 
