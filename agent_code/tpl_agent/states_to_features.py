@@ -268,7 +268,7 @@ def state_to_features(self,game_state: dict, return_2d_features=False, close_to_
     bfs_layer_nearest_crate = bfs_find_next_crate(mask = subblock_comb_mask, start=CENTER_POS)# locate the position to bomb
     # to avoid opponent's bombs as well
     subblock_bomb_and_explosion_map = get_subblock_with_padding(
-                        tensor = torch.tensor(bomb_map+explosion_map).unsqueeze(0),
+                        tensor = (bomb_map+explosion_map).unsqueeze(0),
                         r=self_x,c=self_y,
                         block_size=BLOCK_SIZE,padding_value_list=[0])
     subblock_bomb_and_explosion_map = subblock_bomb_and_explosion_map.squeeze(0)
