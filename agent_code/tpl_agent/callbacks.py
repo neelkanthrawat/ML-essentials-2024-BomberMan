@@ -191,7 +191,7 @@ def act(self, game_state: dict) -> str:
             ## deterministic policy
             action_index = torch.argmax(q_values).item()
             self_action = ACTIONS[action_index]
-            print(f"action is: {self_action}")
+            # print(f"action is: {self_action}")
             return self_action
         elif PROB_ACTION_ON:
         ### Let's work with probabilistic policy
