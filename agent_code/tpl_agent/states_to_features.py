@@ -337,11 +337,11 @@ def state_to_features(self,game_state: dict, return_2d_features=False, close_to_
     subblock_info[0,:,:][subblock_comb_mask==-2]=-2 ### change to fictitous crates instead of walls ### -1 ---> -2
     
     # MAKING AGENT GLIDE AND PLAY SMOOTHLY IN NON-TRAINING MODE
-    # OUR NEURAL NETWORK HAS ALREADY LEARNED TO  COLLECT COINS SMOOTHLY (AND MOVE IN THE DIRECTION of COINS FROM), 
+    # OUR NEURAL NETWORK HAS ALREADY LEARNED TO  COLLECT COINS SMOOTHLY (using COINS LAYER FEATURE), 
     # DROP BOMB WHEN NEAR THE CRATES 
     # AND ESCAPE ITS OWN BOMB. TO FACILITATE SMOOTHER GAMEPLAY AND FURTHER FACILITATE AVOIDING GETTING KILLED
-    # WE INTRODUCE FICTITIOUS COINS IN THE DIRECTION (WHICH IS ALSO A PART OF THE FEATURE VECTOR(in bfs_layer)) . 
-    # THIS HELPS BECAUSE OUR AGENT HAS LEARNED WELL TO MOVE IN THE DIRECTION OF COINS. 
+    # WE INTRODUCE FICTITIOUS COINS IN THE COINS FEATURE IN THE DIRECTION (WHICH IS ALSO A PART OF THE FEATURE VECTOR(in bfs_layer)) . 
+    # THIS HELPS BECAUSE OUR NEURAL AGENT HAS LEARNED THE COINS FEATURE VERY WELL.  
     # (the model works without introducing fictitious coins  as well, but the gameplay is not that smooth).
     if not self.train:
         #removed this from below:"torch.sum(subblock_info[2,:,:])==0 and"
